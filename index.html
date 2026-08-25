@@ -343,7 +343,6 @@ function screenLogin(){
       </form>
       <div class="auth-switch">Ainda não tem conta? <button class="link-btn" onclick="setState({screen:'cadastro',authError:''})">Cadastre-se com sua chave</button></div>
       <div class="auth-switch"><button class="link-btn" onclick="setState({screen:'admin-login',authError:''})">Painel do administrador →</button></div>
-      ${state.canInstall?`<div style="margin-top:16px;"><button class="btn btn-ghost" onclick="onInstallClick()">📲 Instalar app no celular</button></div>`:''}
     </div>
   </div>`;
 }
@@ -694,6 +693,22 @@ function renderModal(){
       </div>
     </div>`;
   }
+  if(m.type==='editarDesafio'){
+    const c = m.data;
+    return `
+    <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
+      <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
+        <h3>Editar desafio</h3>
+        <div class="field"><label>Título</label><input id="e-titulo" value="${(c.titulo||'').replace(/"/g,'&quot;')}" /></div>
+        <div class="field"><label>Descrição / objetivo</label><textarea id="e-desc" rows="3" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:10px;">${c.descricao||''}</textarea></div>
+        <div class="row2">
+          <div class="field"><label>Pontos</label><input id="e-pontos" type="number" value="${c.pontos}" min="1" /></div>
+          <div class="field"><label>Data em que aparece para os usuários</label><input id="e-prazo" type="date" value="${c.prazo}" /></div>
+        </div>
+        <button class="btn btn-primary" onclick="onSalvarEdicaoDesafio('${c.id}')">Salvar alterações</button>
+      </div>
+    </div>`;
+  }
   if(m.type==='rejeitar'){
     return `
     <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
@@ -802,11 +817,16 @@ function adminDesafios(){
   const chs = adminCache.challenges;
   return `
   <div class="page-title"><h1>Desafios</h1><button class="btn btn-primary btn-small" onclick="setState({modal:{type:'novoDesafio'}})">+ Novo desafio</button></div>
-  <div class="page-sub">Crie e gerencie os objetivos que valem pontos no ranking.</div>
+  <div class="page-sub">Crie e gerencie os objetivos que valem pontos no ranking. Use "Editar" para mudar a data em que um desafio aparece para os usuários.</div>
   ${chs.length? chs.map(c=>`
     <div class="challenge"><div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">+${c.pontos} pts</span></div>
       <p>${c.descricao||''}</p>
-      <div class="challenge-foot"><span>Prazo: ${fmtDate(c.prazo)}</span><button class="btn btn-ghost btn-small" onclick="onExcluirDesafio('${c.id}')">Excluir</button></div>
+      <div class="challenge-foot"><span>Aparece em: ${fmtDate(c.prazo)}</span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-ghost btn-small" onclick='setState({modal:{type:"editarDesafio",data:${JSON.stringify(c).replace(/'/g,"&#39;")}}})'>Editar</button>
+          <button class="btn btn-ghost btn-small" onclick="onExcluirDesafio('${c.id}')">Excluir</button>
+        </div>
+      </div>
     </div>`).join('') : `<div class="empty">Nenhum desafio criado ainda.</div>`}`;
 }
 async function onCriarDesafio(){
@@ -816,6 +836,14 @@ async function onCriarDesafio(){
   const { error } = await supabase.from('challenges').insert({titulo,descricao,pontos,prazo,criado_por:state.profile.id});
   if(error){ showToast('Erro: '+error.message,false); return; }
   setState({modal:null}); showToast('Desafio criado.'); loadAdminData();
+}
+async function onSalvarEdicaoDesafio(id){
+  const titulo=document.getElementById('e-titulo').value, descricao=document.getElementById('e-desc').value;
+  const pontos=parseInt(document.getElementById('e-pontos').value,10)||10, prazo=document.getElementById('e-prazo').value;
+  if(!titulo||!prazo){ showToast('Preencha título e prazo.',false); return; }
+  const { error } = await supabase.from('challenges').update({titulo,descricao,pontos,prazo}).eq('id',id);
+  if(error){ showToast('Erro: '+error.message,false); return; }
+  setState({modal:null}); showToast('Desafio atualizado — a data de exibição foi ajustada.'); loadAdminData();
 }
 async function onExcluirDesafio(id){
   const { error } = await supabase.from('challenges').delete().eq('id',id);
@@ -939,7 +967,7 @@ boot();
 Object.assign(window, {
   setState, onField, togglePwd, onLoginClick, onCadastroClick, onAdminLoginClick, handleLogout,
   openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso,
-  onGerarChave, onCriarDesafio, onExcluirDesafio, onRemoverUsuario,
+  onGerarChave, onCriarDesafio, onSalvarEdicaoDesafio, onExcluirDesafio, onRemoverUsuario,
   onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca,
   onInstallClick
 });
