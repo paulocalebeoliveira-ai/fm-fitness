@@ -504,7 +504,7 @@ function tabDashboard(){
   const rankPos = cache.users.findIndex(x=>x.id===u.id)+1;
   const totalUsers = cache.users.length||1;
   const hoje = new Date().toISOString().slice(0,10);
-  const hojeDesafios = cache.challenges.filter(c=>c.prazo===hoje);
+  const hojeDesafios = cache.challenges.filter(c=>c.data_inicio<=hoje && c.prazo>=hoje);
   const totalPossivel = cache.challenges.reduce((s,c)=>s+c.pontos,0)||100;
   const pctDial = Math.min(100,Math.round((u.pontos/totalPossivel)*100));
   return `
@@ -521,7 +521,7 @@ function tabDashboard(){
         <div class="challenge" style="margin-bottom:8px;">
           <div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">+${c.pontos} pts</span></div>
           <p>${c.descricao||''}</p>
-          <div class="challenge-foot"><span>Válido só hoje</span>
+          <div class="challenge-foot"><span>${c.data_inicio===c.prazo?'Válido só hoje':`Válido até ${fmtDate(c.prazo)}`}</span>
             <button class="btn btn-ghost btn-small" onclick="setState({appTab:'desafios'})">Ver e enviar →</button>
           </div>
         </div>`).join('') : `<div class="empty">Nenhum desafio programado para hoje.</div>`}
@@ -538,7 +538,7 @@ function tabDashboard(){
 /* ---- DESAFIOS (somente o(s) desafio(s) de hoje) ---- */
 function tabDesafios(){
   const hoje = new Date().toISOString().slice(0,10);
-  const chs = cache.challenges.filter(c=>c.prazo===hoje);
+  const chs = cache.challenges.filter(c=>c.data_inicio<=hoje && c.prazo>=hoje);
   const minhas = cache.mySubmissions;
   function statusFor(id){ return minhas.filter(x=>x.challenge_id===id).sort((a,b)=>b.data.localeCompare(a.data))[0]; }
   return `
@@ -546,6 +546,7 @@ function tabDesafios(){
   <div class="page-sub">${fmtDate(hoje)} · cumpra o objetivo e envie a evidência para pontuar. Perdeu algum dia? Confira em "Histórico".</div>
   ${chs.length? chs.map(c=>{
     const s = statusFor(c.id);
+    const periodo = c.data_inicio===c.prazo ? `Válido só em ${fmtDate(c.prazo)}` : `Válido de ${fmtDate(c.data_inicio)} até ${fmtDate(c.prazo)}`;
     let statusBadge='';
     if(s){
       if(s.status==='aprovado') statusBadge = `<span class="badge badge-good">Aprovado ✓</span>`;
@@ -557,7 +558,7 @@ function tabDesafios(){
       <div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">+${c.pontos} pts</span></div>
       <p>${c.descricao||''}</p>
       <div class="challenge-foot">
-        <span>Válido só hoje</span>
+        <span>${periodo}</span>
         <div style="display:flex;gap:8px;align-items:center;">
           ${statusBadge}
           ${(!s||s.status==='rejeitado')?`<button class="btn btn-primary btn-small" onclick="openEnvioModal('${c.id}')">Enviar evidência</button>`:''}
@@ -685,10 +686,12 @@ function renderModal(){
         <h3>Novo desafio</h3>
         <div class="field"><label>Título</label><input id="d-titulo" placeholder="ex: 5km correndo" /></div>
         <div class="field"><label>Descrição / objetivo</label><textarea id="d-desc" rows="3" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:10px;"></textarea></div>
+        <div class="field"><label>Pontos</label><input id="d-pontos" type="number" value="10" min="1" /></div>
         <div class="row2">
-          <div class="field"><label>Pontos</label><input id="d-pontos" type="number" value="10" min="1" /></div>
-          <div class="field"><label>Prazo final</label><input id="d-prazo" type="date" /></div>
+          <div class="field"><label>Aparece a partir de</label><input id="d-inicio" type="date" /></div>
+          <div class="field"><label>Até (prazo final)</label><input id="d-prazo" type="date" /></div>
         </div>
+        <div class="helper" style="margin-bottom:14px;">Para um desafio de um dia só, use a mesma data nos dois campos.</div>
         <button class="btn btn-primary" onclick="onCriarDesafio()">Criar desafio</button>
       </div>
     </div>`;
@@ -701,10 +704,12 @@ function renderModal(){
         <h3>Editar desafio</h3>
         <div class="field"><label>Título</label><input id="e-titulo" value="${(c.titulo||'').replace(/"/g,'&quot;')}" /></div>
         <div class="field"><label>Descrição / objetivo</label><textarea id="e-desc" rows="3" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:10px;">${c.descricao||''}</textarea></div>
+        <div class="field"><label>Pontos</label><input id="e-pontos" type="number" value="${c.pontos}" min="1" /></div>
         <div class="row2">
-          <div class="field"><label>Pontos</label><input id="e-pontos" type="number" value="${c.pontos}" min="1" /></div>
-          <div class="field"><label>Data em que aparece para os usuários</label><input id="e-prazo" type="date" value="${c.prazo}" /></div>
+          <div class="field"><label>Aparece a partir de</label><input id="e-inicio" type="date" value="${c.data_inicio}" /></div>
+          <div class="field"><label>Até (prazo final)</label><input id="e-prazo" type="date" value="${c.prazo}" /></div>
         </div>
+        <div class="helper" style="margin-bottom:14px;">Para um desafio de um dia só, use a mesma data nos dois campos.</div>
         <button class="btn btn-primary" onclick="onSalvarEdicaoDesafio('${c.id}')">Salvar alterações</button>
       </div>
     </div>`;
@@ -817,33 +822,40 @@ function adminDesafios(){
   const chs = adminCache.challenges;
   return `
   <div class="page-title"><h1>Desafios</h1><button class="btn btn-primary btn-small" onclick="setState({modal:{type:'novoDesafio'}})">+ Novo desafio</button></div>
-  <div class="page-sub">Crie e gerencie os objetivos que valem pontos no ranking. Use "Editar" para mudar a data em que um desafio aparece para os usuários.</div>
-  ${chs.length? chs.map(c=>`
+  <div class="page-sub">Crie e gerencie os objetivos que valem pontos no ranking. Use "Editar" para mudar o período em que um desafio aparece para os usuários.</div>
+  ${chs.length? chs.map(c=>{
+    const periodo = c.data_inicio===c.prazo ? fmtDate(c.prazo) : `${fmtDate(c.data_inicio)} até ${fmtDate(c.prazo)}`;
+    return `
     <div class="challenge"><div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">+${c.pontos} pts</span></div>
       <p>${c.descricao||''}</p>
-      <div class="challenge-foot"><span>Aparece em: ${fmtDate(c.prazo)}</span>
+      <div class="challenge-foot"><span>Aparece: ${periodo}</span>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-ghost btn-small" onclick='setState({modal:{type:"editarDesafio",data:${JSON.stringify(c).replace(/'/g,"&#39;")}}})'>Editar</button>
           <button class="btn btn-ghost btn-small" onclick="onExcluirDesafio('${c.id}')">Excluir</button>
         </div>
       </div>
-    </div>`).join('') : `<div class="empty">Nenhum desafio criado ainda.</div>`}`;
+    </div>`;
+  }).join('') : `<div class="empty">Nenhum desafio criado ainda.</div>`}`;
 }
 async function onCriarDesafio(){
   const titulo=document.getElementById('d-titulo').value, descricao=document.getElementById('d-desc').value;
-  const pontos=parseInt(document.getElementById('d-pontos').value,10)||10, prazo=document.getElementById('d-prazo').value;
-  if(!titulo||!prazo){ showToast('Preencha título e prazo.',false); return; }
-  const { error } = await supabase.from('challenges').insert({titulo,descricao,pontos,prazo,criado_por:state.profile.id});
+  const pontos=parseInt(document.getElementById('d-pontos').value,10)||10;
+  const dataInicio=document.getElementById('d-inicio').value, prazo=document.getElementById('d-prazo').value;
+  if(!titulo||!prazo||!dataInicio){ showToast('Preencha título, início e prazo.',false); return; }
+  if(dataInicio>prazo){ showToast('A data de início não pode ser depois do prazo final.',false); return; }
+  const { error } = await supabase.from('challenges').insert({titulo,descricao,pontos,data_inicio:dataInicio,prazo,criado_por:state.profile.id});
   if(error){ showToast('Erro: '+error.message,false); return; }
   setState({modal:null}); showToast('Desafio criado.'); loadAdminData();
 }
 async function onSalvarEdicaoDesafio(id){
   const titulo=document.getElementById('e-titulo').value, descricao=document.getElementById('e-desc').value;
-  const pontos=parseInt(document.getElementById('e-pontos').value,10)||10, prazo=document.getElementById('e-prazo').value;
-  if(!titulo||!prazo){ showToast('Preencha título e prazo.',false); return; }
-  const { error } = await supabase.from('challenges').update({titulo,descricao,pontos,prazo}).eq('id',id);
+  const pontos=parseInt(document.getElementById('e-pontos').value,10)||10;
+  const dataInicio=document.getElementById('e-inicio').value, prazo=document.getElementById('e-prazo').value;
+  if(!titulo||!prazo||!dataInicio){ showToast('Preencha título, início e prazo.',false); return; }
+  if(dataInicio>prazo){ showToast('A data de início não pode ser depois do prazo final.',false); return; }
+  const { error } = await supabase.from('challenges').update({titulo,descricao,pontos,data_inicio:dataInicio,prazo}).eq('id',id);
   if(error){ showToast('Erro: '+error.message,false); return; }
-  setState({modal:null}); showToast('Desafio atualizado — a data de exibição foi ajustada.'); loadAdminData();
+  setState({modal:null}); showToast('Desafio atualizado — o período de exibição foi ajustado.'); loadAdminData();
 }
 async function onExcluirDesafio(id){
   const { error } = await supabase.from('challenges').delete().eq('id',id);
