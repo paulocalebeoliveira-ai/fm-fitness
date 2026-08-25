@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FM Fitness — Desafios Fitness</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#12181C; --bg-panel:#182027; --bg-panel-2:#1E272E; --line:#2A343B;
+    --text:#F1ECE3; --text-dim:#8B93A0; --accent:#FF4B2B; --accent-dim:#7A2E20;
+    --good:#7A9A6E; --good-dim:#2C3A28; --warn:#E8B84B; --warn-dim:#4A3D1E; --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;}
+  h1,h2,h3,.display{font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.03em;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  a{color:inherit;} button{font-family:inherit;cursor:pointer;} input,select,textarea{font-family:inherit;}
+  #app{min-height:100vh;}
+  .center-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .auth-card{width:100%;max-width:420px;background:var(--bg-panel);border:1px solid var(--line);border-radius:var(--radius);padding:32px;position:relative;overflow:hidden;}
+  .auth-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:repeating-linear-gradient(90deg,var(--accent) 0 18px,transparent 18px 26px);}
+  .brand{display:flex;align-items:baseline;gap:10px;margin-bottom:4px;}
+  .brand .num{font-family:'Oswald';font-weight:700;font-size:30px;color:var(--accent);}
+  .brand .name{font-size:24px;font-weight:600;}
+  .brand-sub{color:var(--text-dim);font-size:13px;margin-bottom:28px;letter-spacing:0.04em;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim);margin-bottom:6px;}
+  .field input,.field select{width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);padding:10px 12px;border-radius:6px;font-size:14px;}
+  .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--accent);}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:6px;padding:11px 18px;font-size:14px;font-weight:600;letter-spacing:0.03em;text-transform:uppercase;transition:transform .08s ease;}
+  .btn:active{transform:scale(0.97);}
+  .btn[disabled]{opacity:0.6;cursor:not-allowed;}
+  .btn-primary{background:var(--accent);color:#fff;width:100%;}
+  .btn-ghost{background:transparent;color:var(--text-dim);border:1px solid var(--line);}
+  .btn-small{padding:6px 12px;font-size:12px;width:auto;}
+  .link-btn{background:none;border:none;color:var(--accent);cursor:pointer;font-size:13px;text-decoration:underline;padding:0;}
+  .helper{color:var(--text-dim);font-size:12px;margin-top:4px;}
+  .error-box{background:var(--accent-dim);border:1px solid var(--accent);color:#FFD9CE;padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:14px;}
+  .info-box{background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text-dim);padding:10px 12px;border-radius:6px;font-size:12px;margin-top:18px;line-height:1.5;}
+  .auth-switch{text-align:center;margin-top:18px;font-size:13px;color:var(--text-dim);}
+  .shell{display:flex;min-height:100vh;}
+  .sidebar{width:230px;flex-shrink:0;background:var(--bg-panel);border-right:1px solid var(--line);padding:26px 18px;display:flex;flex-direction:column;}
+  .side-brand{display:flex;align-items:baseline;gap:8px;margin-bottom:34px;padding-left:6px;}
+  .side-brand .num{color:var(--accent);font-family:'Oswald';font-weight:700;font-size:20px;}
+  .side-brand .name{font-size:16px;font-weight:600;}
+  .nav-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:8px;color:var(--text-dim);text-decoration:none;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;border:none;background:none;width:100%;text-align:left;font-weight:500;}
+  .nav-item .bib{font-family:'IBM Plex Mono';font-size:11px;width:20px;color:var(--text-dim);}
+  .nav-item.active{background:var(--bg-panel-2);color:var(--text);}
+  .nav-item.active .bib{color:var(--accent);}
+  .nav-item:hover{color:var(--text);}
+  .side-foot{margin-top:auto;padding-top:16px;border-top:1px solid var(--line);}
+  .user-chip{display:flex;align-items:center;gap:10px;padding:8px 6px;}
+  .avatar{width:34px;height:34px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0;}
+  .user-chip .who{font-size:13px;} .user-chip .who .u{color:var(--text-dim);font-size:11px;}
+  .main{flex:1;padding:32px 40px;max-width:1100px;}
+  .page-title{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;}
+  .page-title h1{font-size:26px;margin:0;}
+  .page-sub{color:var(--text-dim);font-size:13px;margin-bottom:28px;}
+  .grid{display:grid;gap:18px;} .grid-3{grid-template-columns:repeat(3,1fr);} .grid-2{grid-template-columns:1.3fr 1fr;}
+  .card{background:var(--bg-panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px;}
+  .card h3{font-size:13px;color:var(--text-dim);margin:0 0 6px 0;letter-spacing:0.06em;}
+  .stat{font-family:'IBM Plex Mono';font-size:32px;font-weight:600;}
+  .stat-sub{font-size:12px;color:var(--text-dim);margin-top:2px;}
+  .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;}
+  .badge-good{background:var(--good-dim);color:var(--good);} .badge-warn{background:var(--warn-dim);color:var(--warn);} .badge-bad{background:var(--accent-dim);color:#FFAF9C;}
+  .gauge-wrap{display:flex;align-items:center;gap:18px;} .gauge-num{font-family:'IBM Plex Mono';font-size:28px;font-weight:600;} .gauge-label{font-size:12px;color:var(--text-dim);margin-top:2px;}
+  .challenge{border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:12px;background:var(--bg-panel-2);}
+  .challenge-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+  .challenge h4{margin:0 0 6px 0;font-size:15px;font-family:'Oswald';text-transform:none;letter-spacing:0;}
+  .challenge p{margin:0;color:var(--text-dim);font-size:13px;line-height:1.5;}
+  .points-pill{font-family:'IBM Plex Mono';background:var(--bg);border:1px solid var(--line);padding:4px 10px;border-radius:20px;font-size:12px;color:var(--accent);white-space:nowrap;}
+  .challenge-foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12px;color:var(--text-dim);flex-wrap:wrap;gap:8px;}
+  .rank-row{display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:8px;margin-bottom:8px;border:1px solid var(--line);background:var(--bg-panel-2);}
+  .rank-row.me{border-color:var(--accent);}
+  .bib-num{font-family:'IBM Plex Mono';font-size:15px;width:34px;color:var(--text-dim);}
+  .rank-row:nth-child(1) .bib-num,.rank-row:nth-child(2) .bib-num,.rank-row:nth-child(3) .bib-num{color:var(--accent);font-weight:700;}
+  .rank-name{flex:1;} .rank-name .n{font-weight:600;font-size:14px;} .rank-name .m{font-size:11px;color:var(--text-dim);}
+  .rank-pts{font-family:'IBM Plex Mono';font-size:16px;color:var(--accent);width:70px;text-align:right;}
+  .evo{font-size:11px;width:90px;text-align:right;color:var(--text-dim);} .evo.down{color:var(--good);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--text-dim);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;padding:8px 10px;border-bottom:1px solid var(--line);}
+  td{padding:10px;border-bottom:1px solid var(--line);} tr:last-child td{border-bottom:none;}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px;}
+  .modal{background:var(--bg-panel);border:1px solid var(--line);border-radius:var(--radius);padding:26px;width:100%;max-width:480px;max-height:88vh;overflow:auto;position:relative;}
+  .modal h3{font-size:18px;font-family:'Oswald';text-transform:none;letter-spacing:0;margin-top:0;}
+  .close-x{position:absolute;top:16px;right:18px;background:none;border:none;color:var(--text-dim);font-size:18px;}
+  .keycode{font-family:'IBM Plex Mono';background:var(--bg);border:1px dashed var(--line);padding:8px 12px;border-radius:6px;display:inline-block;letter-spacing:0.05em;}
+  .photo-thumb{width:100%;max-height:220px;object-fit:cover;border-radius:6px;margin-top:10px;border:1px solid var(--line);}
+  .empty{color:var(--text-dim);font-size:13px;padding:20px 0;text-align:center;}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:8px;font-size:13px;z-index:99;}
+  .toast-ok{background:var(--good-dim);color:var(--good);border:1px solid var(--good);}
+  .toast-err{background:var(--accent-dim);color:#FFAF9C;border:1px solid var(--accent);}
+  ::-webkit-scrollbar{width:8px;} ::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+  @media(max-width:900px){
+    .shell{flex-direction:column;} .sidebar{width:100%;flex-direction:row;overflow-x:auto;padding:14px;}
+    .side-brand,.side-foot{display:none;} .nav-item{white-space:nowrap;} .main{padding:20px;}
+    .grid-3{grid-template-columns:1fr;} .grid-2{grid-template-columns:1fr;} .row2{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+<div id="app"><div class="center-screen"><div style="color:var(--text-dim);font-size:13px;">Carregando…</div></div></div>
+
+<script>
+(function(){
+/* ======================= CONFIG SUPABASE ======================= */
+const SUPABASE_URL = 'https://mojcqxkenbvcljrtutsk.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_j3-0wTnYTgFvxRtA54e-gA_UNu8oscb';
+const EMAIL_DOMAIN = '@fmfit.local'; // usuário vira email fake internamente para o Supabase Auth
+
+// Adaptador em memória (usado quando o participante NÃO marca "manter conectado",
+// ou automaticamente quando localStorage não está disponível, como dentro do preview do chat).
+const memoryStorage = (()=>{ const d={}; return {
+  getItem:(k)=> (k in d? d[k] : null),
+  setItem:(k,v)=>{ d[k]=v; },
+  removeItem:(k)=>{ delete d[k]; }
+};})();
+
+function localStorageAvailable(){
+  try{ window.localStorage.setItem('__fmfit_test__','1'); window.localStorage.removeItem('__fmfit_test__'); return true; }
+  catch(e){ return false; }
+}
+const HAS_LOCAL_STORAGE = localStorageAvailable();
+
+// Quando publicado como site (fora do preview do chat), "manter conectado" usa localStorage de verdade,
+// então o login sobrevive a fechar a aba/o navegador. Sem isso, cai para memória (sessão some ao recarregar).
+function makeClient(remember){
+  const storage = (remember && HAS_LOCAL_STORAGE) ? window.localStorage : memoryStorage;
+  return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { storage, persistSession: true, autoRefreshToken: true, detectSessionInUrl:false }
+  });
+}
+let supabase = makeClient(true); // ao carregar a página, tenta recuperar sessão salva (se houver)
+
+/* ======================= UTIL ======================= */
+function uid(p){ return p+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function calcIMC(peso,alturaCm){ const m=alturaCm/100; if(!peso||!m) return null; return +(peso/(m*m)).toFixed(1); }
+function classIMC(imc){
+  if(imc==null) return {label:'—',tone:'warn'};
+  if(imc<18.5) return {label:'Abaixo do peso',tone:'warn'};
+  if(imc<25) return {label:'Peso normal',tone:'good'};
+  if(imc<30) return {label:'Sobrepeso',tone:'warn'};
+  if(imc<35) return {label:'Obesidade I',tone:'bad'};
+  if(imc<40) return {label:'Obesidade II',tone:'bad'};
+  return {label:'Obesidade III',tone:'bad'};
+}
+function daysLeft(dateStr){ const d=new Date(dateStr+'T23:59:59'); return Math.ceil((d-new Date())/86400000); }
+function fmtDate(dateStr){ if(!dateStr) return '—'; return new Date(dateStr+'T12:00:00').toLocaleDateString('pt-BR'); }
+function fmtDateTime(ts){ if(!ts) return '—'; return new Date(ts).toLocaleDateString('pt-BR'); }
+function initials(nome){ return (nome||'?').split(' ').filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join(''); }
+function compressImageToBlob(file,maxW=480,quality=0.55){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = e=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let w=img.width,h=img.height;
+        if(w>maxW){ h=h*(maxW/w); w=maxW; }
+        const canvas = document.createElement('canvas');
+        canvas.width=w; canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        canvas.toBlob(blob=>resolve(blob),'image/jpeg',quality);
+      };
+      img.onerror=reject; img.src=e.target.result;
+    };
+    reader.onerror=reject; reader.readAsDataURL(file);
+  });
+}
+
+/* ======================= STATE ======================= */
+function novoLoginForm(){ return {username:(HAS_LOCAL_STORAGE && localStorage.getItem('fmfit_last_user'))||'', senha:'', lembrar:true}; }
+function novoCadastroForm(){ return {chave:'',nome:'',username:'',senha:'',idade:'',sexo:'feminino',peso:'',altura:'',lembrar:true}; }
+function novoAdminLoginForm(){ return {username:'',senha:'',lembrar:false}; }
+
+let state = {
+  screen:'boot', // boot | login | cadastro | app | admin-login | admin
+  appTab:'dashboard', adminTab:'chaves',
+  session:null, profile:null,
+  loginForm: novoLoginForm(), cadastroForm: novoCadastroForm(), adminLoginForm: novoAdminLoginForm(),
+  authError:'', busy:false, modal:null, toast:null
+};
+function setState(patch){ state = {...state,...patch}; render(); }
+// Atualiza um campo de formulário SEM re-renderizar (preserva o foco/cursor enquanto o usuário digita).
+function onField(formKey,field,value){ state[formKey][field] = value; }
+function showToast(msg,ok=true){ state.toast={msg,ok}; render(); setTimeout(()=>{ state.toast=null; render(); },2800); }
+
+/* ======================= BOOT / SESSION ======================= */
+async function boot(){
+  const { data:{session} } = await supabase.auth.getSession();
+  if(session){
+    const { data:profile } = await supabase.from('profiles').select('*').eq('id',session.user.id).single();
+    if(profile){ setState({session,profile,screen:'app',appTab:'dashboard'}); return; }
+  }
+  setState({screen:'login'});
+}
+
+/* ======================= AUTH ======================= */
+async function handleLogin(username,senha,lembrar){
+  setState({busy:true,authError:''});
+  supabase = makeClient(lembrar);
+  const email = username.trim().toLowerCase()+EMAIL_DOMAIN;
+  const { data, error } = await supabase.auth.signInWithPassword({email,password:senha});
+  if(error){ setState({busy:false,authError:'Usuário ou senha inválidos.'}); return; }
+  const { data:profile } = await supabase.from('profiles').select('*').eq('id',data.user.id).single();
+  if(!profile){ setState({busy:false,authError:'Conta sem perfil associado. Contate o administrador.'}); return; }
+  if(HAS_LOCAL_STORAGE) localStorage.setItem('fmfit_last_user',username.trim().toLowerCase());
+  setState({busy:false,session:data.session,profile,screen:'app',appTab:'dashboard'});
+}
+
+async function handleCadastro(form){
+  setState({busy:true,authError:''});
+  supabase = makeClient(form.lembrar);
+  const username = form.username.trim().toLowerCase();
+  const email = username+EMAIL_DOMAIN;
+
+  const { data: signData, error: signErr } = await supabase.auth.signUp({email,password:form.senha});
+  if(signErr){
+    const msg = /already registered|already exists/i.test(signErr.message) ? 'Esse nome de usuário já existe.' : signErr.message;
+    setState({busy:false,authError:msg}); return;
+  }
+  if(!signData.session){
+    setState({busy:false,authError:'Cadastro criado, mas a confirmação de e-mail está ativa no projeto Supabase. Peça para desativar "Confirm email" em Authentication → Settings e tente novamente.'});
+    return;
+  }
+
+  const { data:tipo, error:keyErr } = await supabase.rpc('redeem_access_key',{key_code:form.chave.trim()});
+  if(keyErr){
+    setState({busy:false,authError:keyErr.message || 'Chave de acesso inválida.'});
+    return;
+  }
+
+  const peso = parseFloat(form.peso), altura = parseFloat(form.altura);
+  const imc = calcIMC(peso,altura);
+  const profile = {
+    id: signData.user.id, username, nome: form.nome, idade: parseInt(form.idade,10), sexo: form.sexo,
+    peso, peso_inicial: peso, altura, imc, pontos:0, is_admin: tipo==='admin'
+  };
+  const { error: profErr } = await supabase.from('profiles').insert(profile);
+  if(profErr){ setState({busy:false,authError:'Erro ao criar perfil: '+profErr.message}); return; }
+  await supabase.from('weight_history').insert({user_id:signData.user.id,peso});
+  if(HAS_LOCAL_STORAGE) localStorage.setItem('fmfit_last_user',username);
+
+  setState({busy:false,session:signData.session,profile,screen:'app',appTab:'dashboard'});
+}
+
+async function handleLogout(){
+  await supabase.auth.signOut();
+  supabase = makeClient(true);
+  setState({session:null,profile:null,screen:'login',authError:'',loginForm:novoLoginForm(),cadastroForm:novoCadastroForm(),adminLoginForm:novoAdminLoginForm()});
+}
+
+async function refreshProfile(){
+  if(!state.profile) return;
+  const { data } = await supabase.from('profiles').select('*').eq('id',state.profile.id).single();
+  if(data) setState({profile:data});
+}
+
+/* ======================= RENDER ROOT ======================= */
+function render(){
+  const root = document.getElementById('app');
+  let html = '';
+  if(state.screen==='boot') html = `<div class="center-screen"><div style="color:var(--text-dim);font-size:13px;">Carregando…</div></div>`;
+  else if(state.screen==='login') html = screenLogin();
+  else if(state.screen==='cadastro') html = screenCadastro();
+  else if(state.screen==='app') html = screenApp();
+  else if(state.screen==='admin-login') html = screenAdminLogin();
+  else if(state.screen==='admin') html = screenAdmin();
+  if(state.modal) html += renderModal();
+  if(state.toast) html += `<div class="toast ${state.toast.ok?'toast-ok':'toast-err'}">${state.toast.msg}</div>`;
+  root.innerHTML = html;
+}
+
+/* ======================= SCREEN: LOGIN ======================= */
+function screenLogin(){
+  const f = state.loginForm;
+  return `
+  <div class="center-screen">
+    <div class="auth-card">
+      <div class="brand"><span class="num">FM</span><span class="name">Fitness</span></div>
+      <div class="brand-sub">Desafios fitness · disciplina, progresso, ranking</div>
+      ${state.authError?`<div class="error-box">${state.authError}</div>`:''}
+      <form autocomplete="on" onsubmit="event.preventDefault(); onLoginClick(); return false;">
+        <div class="field"><label>Usuário</label><input name="username" autocomplete="username" value="${f.username}" oninput="onField('loginForm','username',this.value)" placeholder="seu.usuario" /></div>
+        <div class="field"><label>Senha</label><input name="password" type="password" autocomplete="current-password" value="${f.senha}" oninput="onField('loginForm','senha',this.value)" placeholder="••••••••" /></div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);margin-bottom:16px;">
+          <input type="checkbox" ${f.lembrar?'checked':''} onchange="onField('loginForm','lembrar',this.checked)" style="width:auto;" /> Manter-me conectado neste navegador
+        </label>
+        <button type="submit" class="btn btn-primary" ${state.busy?'disabled':''}>${state.busy?'Entrando…':'Entrar'}</button>
+      </form>
+      <div class="auth-switch">Ainda não tem conta? <button class="link-btn" onclick="setState({screen:'cadastro',authError:''})">Cadastre-se com sua chave</button></div>
+      <div class="auth-switch"><button class="link-btn" onclick="setState({screen:'admin-login',authError:''})">Painel do administrador →</button></div>
+    </div>
+  </div>`;
+}
+function onLoginClick(){
+  const f = state.loginForm;
+  if(!f.username||!f.senha){ setState({authError:'Preencha usuário e senha.'}); return; }
+  handleLogin(f.username,f.senha,f.lembrar);
+}
+
+/* ======================= SCREEN: CADASTRO ======================= */
+function screenCadastro(){
+  const f = state.cadastroForm;
+  return `
+  <div class="center-screen">
+    <div class="auth-card">
+      <div class="brand"><span class="num">FM</span><span class="name">Cadastro</span></div>
+      <div class="brand-sub">Preencha seus dados para começar a competir</div>
+      ${state.authError?`<div class="error-box">${state.authError}</div>`:''}
+      <form autocomplete="on" onsubmit="event.preventDefault(); onCadastroClick(); return false;">
+        <div class="field"><label>Chave de acesso</label><input value="${f.chave}" oninput="onField('cadastroForm','chave',this.value)" placeholder="Chave fornecida pelo administrador" /></div>
+        <div class="field"><label>Nome completo</label><input value="${f.nome}" oninput="onField('cadastroForm','nome',this.value)" placeholder="Seu nome" /></div>
+        <div class="field"><label>Usuário</label><input name="username" autocomplete="username" value="${f.username}" oninput="onField('cadastroForm','username',this.value)" placeholder="ex: joao.silva" /></div>
+        <div class="field"><label>Senha</label><input name="new-password" type="password" autocomplete="new-password" value="${f.senha}" oninput="onField('cadastroForm','senha',this.value)" placeholder="mín. 6 caracteres" /></div>
+        <div class="row2">
+          <div class="field"><label>Idade</label><input type="number" min="10" max="100" value="${f.idade}" oninput="onField('cadastroForm','idade',this.value)" placeholder="anos" /></div>
+          <div class="field"><label>Sexo</label><select onchange="onField('cadastroForm','sexo',this.value)">
+            <option value="feminino" ${f.sexo==='feminino'?'selected':''}>Feminino</option>
+            <option value="masculino" ${f.sexo==='masculino'?'selected':''}>Masculino</option>
+            <option value="outro" ${f.sexo==='outro'?'selected':''}>Outro</option>
+          </select></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Peso (kg)</label><input type="number" step="0.1" value="${f.peso}" oninput="onField('cadastroForm','peso',this.value)" placeholder="ex: 78.5" /></div>
+          <div class="field"><label>Altura (cm)</label><input type="number" value="${f.altura}" oninput="onField('cadastroForm','altura',this.value)" placeholder="ex: 175" /></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);margin-bottom:16px;">
+          <input type="checkbox" ${f.lembrar?'checked':''} onchange="onField('cadastroForm','lembrar',this.checked)" style="width:auto;" /> Manter-me conectado neste navegador
+        </label>
+        <button type="submit" class="btn btn-primary" ${state.busy?'disabled':''}>${state.busy?'Enviando…':'Criar minha conta'}</button>
+      </form>
+      <div class="auth-switch">Já tem conta? <button class="link-btn" onclick="setState({screen:'login',authError:''})">Fazer login</button></div>
+    </div>
+  </div>`;
+}
+function onCadastroClick(){
+  const form = state.cadastroForm;
+  if(!form.chave||!form.nome||!form.username||!form.senha||!form.idade||!form.peso||!form.altura){ setState({authError:'Preencha todos os campos.'}); return; }
+  if(form.senha.length<6){ setState({authError:'A senha deve ter ao menos 6 caracteres (exigência do Supabase).'}); return; }
+  if(!/^[a-z0-9._-]+$/.test(form.username.trim().toLowerCase())){ setState({authError:'Usuário deve conter apenas letras, números, ponto, traço ou underline.'}); return; }
+  handleCadastro(form);
+}
+
+/* ======================= SCREEN: ADMIN LOGIN ======================= */
+function screenAdminLogin(){
+  const f = state.adminLoginForm;
+  return `
+  <div class="center-screen">
+    <div class="auth-card">
+      <div class="brand"><span class="num">FM</span><span class="name">Painel Admin</span></div>
+      <div class="brand-sub">Acesso restrito · controle de chaves, desafios e usuários</div>
+      ${state.authError?`<div class="error-box">${state.authError}</div>`:''}
+      <form autocomplete="on" onsubmit="event.preventDefault(); onAdminLoginClick(); return false;">
+        <div class="field"><label>Usuário admin</label><input name="username" autocomplete="username" value="${f.username}" oninput="onField('adminLoginForm','username',this.value)" /></div>
+        <div class="field"><label>Senha</label><input name="password" type="password" autocomplete="current-password" value="${f.senha}" oninput="onField('adminLoginForm','senha',this.value)" /></div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);margin-bottom:16px;">
+          <input type="checkbox" ${f.lembrar?'checked':''} onchange="onField('adminLoginForm','lembrar',this.checked)" style="width:auto;" /> Manter-me conectado neste navegador
+        </label>
+        <button type="submit" class="btn btn-primary" ${state.busy?'disabled':''}>${state.busy?'Verificando…':'Acessar painel'}</button>
+      </form>
+      <div class="auth-switch"><button class="link-btn" onclick="setState({screen:'login',authError:''})">← Voltar ao app</button></div>
+      <div class="info-box">Primeiro acesso? Cadastre-se na tela de cadastro usando a chave mestra <span class="mono">FMADMIN2026</span> para criar a primeira conta de administrador.</div>
+    </div>
+  </div>`;
+}
+async function onAdminLoginClick(){
+  const f = state.adminLoginForm;
+  const u = f.username.trim().toLowerCase(), p = f.senha;
+  setState({busy:true,authError:''});
+  supabase = makeClient(f.lembrar);
+  const email = u+EMAIL_DOMAIN;
+  const { data, error } = await supabase.auth.signInWithPassword({email,password:p});
+  if(error){ setState({busy:false,authError:'Credenciais inválidas.'}); return; }
+  const { data:profile } = await supabase.from('profiles').select('*').eq('id',data.user.id).single();
+  if(!profile || !profile.is_admin){ setState({busy:false,authError:'Esta conta não tem permissão de administrador.'}); await supabase.auth.signOut(); return; }
+  if(HAS_LOCAL_STORAGE) localStorage.setItem('fmfit_last_user',u);
+  setState({busy:false,session:data.session,profile,screen:'admin',adminTab:'chaves'});
+}
+
+/* ======================= APP SHELL ======================= */
+function sidebarHTML(active,isAdminPanel){
+  const u = state.profile;
+  const items = isAdminPanel ? [['01','chaves','Chaves de acesso'],['02','desafios','Desafios'],['03','usuarios','Usuários'],['04','submissoes','Evidências']]
+                             : [['01','dashboard','Painel'],['02','desafios','Desafios'],['03','ranking','Ranking'],['04','perfil','Perfil']];
+  return `
+  <div class="sidebar">
+    <div class="side-brand"><span class="num">FM</span><span class="name">Fitness${isAdminPanel?' · ADM':''}</span></div>
+    ${items.map(([n,key,label])=>`
+      <button class="nav-item ${active===key?'active':''}" onclick="${isAdminPanel?`setState({adminTab:'${key}'})`:`setState({appTab:'${key}'})`}">
+        <span class="bib">${n}</span>${label}
+      </button>`).join('')}
+    <div class="side-foot">
+      ${isAdminPanel?`<button class="nav-item" onclick="setState({screen:'app',appTab:'dashboard'})"><span class="bib">←</span>Ver como usuário</button>`:''}
+      ${u&&u.is_admin?`<button class="nav-item" onclick="setState({screen:'admin',adminTab:'chaves'})"><span class="bib">⚑</span>Painel admin</button>`:''}
+      <div class="user-chip"><div class="avatar">${initials(u?.nome)}</div><div class="who">${u?.nome}<div class="u">@${u?.username}</div></div></div>
+      <button class="nav-item" onclick="handleLogout()"><span class="bib">×</span>Sair</button>
+    </div>
+  </div>`;
+}
+
+function screenApp(){
+  let content = `<div class="empty">Carregando…</div>`;
+  const html = `<div class="shell">${sidebarHTML(state.appTab,false)}<div class="main">${content}</div></div>`;
+  setTimeout(loadAppTab,0);
+  return html;
+}
+
+let cache = {users:[], challenges:[], mySubmissions:[]};
+async function loadAppTab(){
+  if(state.appTab==='dashboard' || state.appTab==='ranking'){
+    const { data:users } = await supabase.from('profiles').select('*').order('pontos',{ascending:false});
+    cache.users = users||[];
+  }
+  if(state.appTab==='dashboard' || state.appTab==='desafios'){
+    const { data:chs } = await supabase.from('challenges').select('*').order('prazo',{ascending:true});
+    cache.challenges = chs||[];
+    const { data:subs } = await supabase.from('submissions').select('*').eq('user_id',state.profile.id);
+    cache.mySubmissions = subs||[];
+  }
+  rerenderMain();
+}
+function rerenderMain(){
+  const el = document.querySelector('.main'); if(!el) return;
+  if(state.screen==='app'){
+    if(state.appTab==='dashboard') el.innerHTML = tabDashboard();
+    else if(state.appTab==='desafios') el.innerHTML = tabDesafios();
+    else if(state.appTab==='ranking') el.innerHTML = tabRanking();
+    else if(state.appTab==='perfil') el.innerHTML = tabPerfil();
+  } else if(state.screen==='admin'){
+    if(state.adminTab==='chaves') el.innerHTML = adminChaves();
+    else if(state.adminTab==='desafios') el.innerHTML = adminDesafios();
+    else if(state.adminTab==='usuarios') el.innerHTML = adminUsuarios();
+    else if(state.adminTab==='submissoes') el.innerHTML = adminSubmissoes();
+  }
+}
+
+/* ---- DASHBOARD ---- */
+function tabDashboard(){
+  const u = state.profile, imcInfo = classIMC(u.imc);
+  const rankPos = cache.users.findIndex(x=>x.id===u.id)+1;
+  const totalUsers = cache.users.length||1;
+  const proximos = cache.challenges.filter(c=>daysLeft(c.prazo)>=0).slice(0,3);
+  const totalPossivel = cache.challenges.reduce((s,c)=>s+c.pontos,0)||100;
+  const pctDial = Math.min(100,Math.round((u.pontos/totalPossivel)*100));
+  return `
+  <div class="page-title"><h1>Painel</h1></div>
+  <div class="page-sub">Olá, ${u.nome.split(' ')[0]}. Aqui está seu retrato de hoje.</div>
+  <div class="grid grid-3" style="margin-bottom:18px;">
+    <div class="card"><h3>Pontuação</h3><div class="stat">${u.pontos}</div><div class="stat-sub">pts acumulados</div></div>
+    <div class="card"><h3>Posição no ranking</h3><div class="stat">#${rankPos||'-'}</div><div class="stat-sub">de ${totalUsers} atletas</div></div>
+    <div class="card"><h3>IMC atual</h3><div class="gauge-wrap"><div class="gauge-num">${u.imc??'—'}</div><div><span class="badge badge-${imcInfo.tone}">${imcInfo.label}</span><div class="gauge-label">peso atual ${u.peso}kg</div></div></div></div>
+  </div>
+  <div class="grid grid-2">
+    <div class="card"><h3>Próximos desafios</h3>
+      ${proximos.length? proximos.map(c=>`
+        <div class="challenge" style="margin-bottom:8px;">
+          <div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">+${c.pontos} pts</span></div>
+          <p>${c.descricao||''}</p>
+          <div class="challenge-foot"><span>Prazo: ${fmtDate(c.prazo)} · ${daysLeft(c.prazo)} dia(s)</span>
+            <button class="btn btn-ghost btn-small" onclick="setState({appTab:'desafios'})">Ver e enviar →</button>
+          </div>
+        </div>`).join('') : `<div class="empty">Nenhum desafio ativo no momento.</div>`}
+    </div>
+    <div class="card"><h3>Evolução de peso</h3>
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:10px;">Peso inicial: <b class="mono" style="color:var(--text)">${u.peso_inicial}kg</b> → Atual: <b class="mono" style="color:var(--text)">${u.peso}kg</b></div>
+      <div style="height:8px;background:var(--bg-panel-2);border-radius:4px;overflow:hidden;border:1px solid var(--line);"><div style="height:100%;width:${pctDial}%;background:var(--accent);"></div></div>
+      <div class="stat-sub" style="margin-top:8px;">${u.peso<u.peso_inicial? (u.peso_inicial-u.peso).toFixed(1)+'kg eliminados até agora 💪' : u.peso>u.peso_inicial? (u.peso-u.peso_inicial).toFixed(1)+'kg a mais desde o início' : 'Sem variação registrada ainda'}</div>
+      <button class="btn btn-ghost btn-small" style="margin-top:14px;" onclick="setState({appTab:'perfil'})">Atualizar peso →</button>
+    </div>
+  </div>`;
+}
+
+/* ---- DESAFIOS ---- */
+function tabDesafios(){
+  const chs = cache.challenges, minhas = cache.mySubmissions;
+  function statusFor(id){ return minhas.filter(x=>x.challenge_id===id).sort((a,b)=>b.data.localeCompare(a.data))[0]; }
+  return `
+  <div class="page-title"><h1>Desafios</h1></div>
+  <div class="page-sub">Cumpra o objetivo e envie a evidência em foto para pontuar.</div>
+  ${chs.length? chs.map(c=>{
+    const s = statusFor(c.id), expirado = daysLeft(c.prazo)<0;
+    let statusBadge='';
+    if(s){
+      if(s.status==='aprovado') statusBadge = `<span class="badge badge-good">Aprovado ✓</span>`;
+      else if(s.status==='rejeitado') statusBadge = `<span class="badge badge-bad">Rejeitado</span>`;
+      else statusBadge = `<span class="badge badge-warn">Em análise</span>`;
+    } else if(expirado){ statusBadge = `<span class="badge badge-bad">Expirado</span>`; }
+    return `
+    <div class="challenge">
+      <div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">+${c.pontos} pts</span></div>
+      <p>${c.descricao||''}</p>
+      <div class="challenge-foot">
+        <span>Prazo: ${fmtDate(c.prazo)} ${expirado?'(encerrado)':`· ${daysLeft(c.prazo)} dia(s) restante(s)`}</span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          ${statusBadge}
+          ${(!s||s.status==='rejeitado')&&!expirado?`<button class="btn btn-primary btn-small" onclick="openEnvioModal('${c.id}')">Enviar evidência</button>`:''}
+        </div>
+      </div>
+    </div>`;
+  }).join('') : `<div class="empty">Nenhum desafio cadastrado ainda. Fale com o administrador.</div>`}`;
+}
+function openEnvioModal(challengeId){ setState({modal:{type:'envio',data:{challengeId}}}); }
+
+/* ---- RANKING ---- */
+function tabRanking(){
+  const users = cache.users, me = state.profile.id;
+  return `
+  <div class="page-title"><h1>Ranking</h1></div>
+  <div class="page-sub">Evolução de todos os participantes — cada um vê o progresso de todos.</div>
+  <div class="card">
+    ${users.length? users.map((u,i)=>{
+      const delta = u.peso - u.peso_inicial;
+      const evo = delta<0 ? `<span class="evo down">▼ ${Math.abs(delta).toFixed(1)}kg</span>` : delta>0 ? `<span class="evo">▲ ${delta.toFixed(1)}kg</span>` : `<span class="evo">— 0kg</span>`;
+      return `
+      <div class="rank-row ${u.id===me?'me':''}">
+        <div class="bib-num">${String(i+1).padStart(2,'0')}</div>
+        <div class="avatar" style="width:30px;height:30px;font-size:12px;">${initials(u.nome)}</div>
+        <div class="rank-name"><div class="n">${u.nome}${u.id===me?' (você)':''}</div><div class="m">IMC ${u.imc??'—'} · ${classIMC(u.imc).label}</div></div>
+        ${evo}<div class="rank-pts">${u.pontos} pts</div>
+      </div>`;
+    }).join('') : `<div class="empty">Ainda não há participantes cadastrados.</div>`}
+  </div>`;
+}
+
+/* ---- PERFIL ---- */
+function tabPerfil(){
+  const u = state.profile, imcInfo = classIMC(u.imc);
+  return `
+  <div class="page-title"><h1>Perfil</h1></div>
+  <div class="page-sub">Atualize seu peso para recalcular o IMC e acompanhar sua evolução.</div>
+  <div class="grid grid-2">
+    <div class="card"><h3>Dados cadastrais</h3>
+      <table>
+        <tr><td>Nome</td><td>${u.nome}</td></tr><tr><td>Usuário</td><td>@${u.username}</td></tr>
+        <tr><td>Idade</td><td>${u.idade} anos</td></tr><tr><td>Sexo</td><td style="text-transform:capitalize">${u.sexo}</td></tr>
+        <tr><td>Altura</td><td>${u.altura} cm</td></tr><tr><td>Peso atual</td><td>${u.peso} kg</td></tr>
+        <tr><td>IMC</td><td>${u.imc} — <span class="badge badge-${imcInfo.tone}">${imcInfo.label}</span></td></tr>
+      </table>
+    </div>
+    <div class="card"><h3>Registrar novo peso</h3>
+      <div class="field"><label>Peso atual (kg)</label><input id="p-novo-peso" type="number" step="0.1" value="${u.peso}" /></div>
+      <button class="btn btn-primary" onclick="onAtualizarPeso()">Atualizar e recalcular IMC</button>
+      <div id="p-historico" class="info-box">Carregando histórico…</div>
+    </div>
+  </div>`;
+}
+async function onAtualizarPeso(){
+  const novoPeso = parseFloat(document.getElementById('p-novo-peso').value);
+  if(!novoPeso||novoPeso<=0) return;
+  const u = state.profile;
+  const imc = calcIMC(novoPeso,u.altura);
+  await supabase.from('profiles').update({peso:novoPeso,imc}).eq('id',u.id);
+  await supabase.from('weight_history').insert({user_id:u.id,peso:novoPeso});
+  await refreshProfile();
+  showToast('Peso atualizado com sucesso.');
+}
+
+/* ======================= MODAL: ENVIO DE EVIDÊNCIA ======================= */
+function renderModal(){
+  const m = state.modal; if(!m) return '';
+  if(m.type==='envio'){
+    const c = cache.challenges.find(x=>x.id===m.data.challengeId);
+    return `
+    <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
+      <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
+        <h3>Enviar evidência</h3>
+        <div class="helper" style="margin-bottom:14px;">${c?c.titulo:''}</div>
+        <div class="field"><label>Foto comprovando o objetivo (opcional)</label><input type="file" id="m-foto" accept="image/*" onchange="onFotoSelecionada(event)" /></div>
+        <img id="m-preview" class="photo-thumb" style="display:none;" />
+        <div class="field" style="margin-top:12px;"><label>Comentário (opcional)</label><textarea id="m-comentario" rows="3" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:10px;"></textarea></div>
+        <button class="btn btn-primary" id="m-enviar-btn" onclick="onEnviarEvidencia('${m.data.challengeId}')">Enviar para aprovação</button>
+      </div>
+    </div>`;
+  }
+  if(m.type==='novaChave'){
+    return `
+    <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
+      <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
+        <h3>Gerar chave de acesso</h3>
+        <div class="field"><label>Tipo de conta</label><select id="k-tipo"><option value="user">Usuário</option><option value="admin">Administrador</option></select></div>
+        <div class="field"><label>Validade (dias a partir de hoje)</label><input id="k-dias" type="number" value="7" min="1" /></div>
+        <button class="btn btn-primary" onclick="onGerarChave()">Gerar chave</button>
+      </div>
+    </div>`;
+  }
+  if(m.type==='novoDesafio'){
+    return `
+    <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
+      <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
+        <h3>Novo desafio</h3>
+        <div class="field"><label>Título</label><input id="d-titulo" placeholder="ex: 5km correndo" /></div>
+        <div class="field"><label>Descrição / objetivo</label><textarea id="d-desc" rows="3" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:10px;"></textarea></div>
+        <div class="row2">
+          <div class="field"><label>Pontos</label><input id="d-pontos" type="number" value="10" min="1" /></div>
+          <div class="field"><label>Prazo final</label><input id="d-prazo" type="date" /></div>
+        </div>
+        <button class="btn btn-primary" onclick="onCriarDesafio()">Criar desafio</button>
+      </div>
+    </div>`;
+  }
+  if(m.type==='rejeitar'){
+    return `
+    <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
+      <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
+        <h3>Rejeitar evidência</h3>
+        <div class="field"><label>Motivo (opcional)</label><textarea id="r-motivo" rows="3" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:10px;"></textarea></div>
+        <button class="btn btn-primary" onclick="onConfirmarRejeicao('${m.data.subId}')">Confirmar rejeição</button>
+      </div>
+    </div>`;
+  }
+  return '';
+}
+
+let fotoPendente = null;
+async function onFotoSelecionada(ev){
+  const file = ev.target.files[0]; if(!file) return;
+  fotoPendente = await compressImageToBlob(file);
+  const img = document.getElementById('m-preview');
+  img.src = URL.createObjectURL(fotoPendente); img.style.display='block';
+}
+async function onEnviarEvidencia(challengeId){
+  const btn = document.getElementById('m-enviar-btn'); if(btn){ btn.disabled=true; btn.textContent='Enviando…'; }
+  const comentario = document.getElementById('m-comentario').value;
+  let fotoUrl = null;
+  if(fotoPendente){
+    const path = `${state.profile.id}/${Date.now()}.jpg`;
+    const { error: upErr } = await supabase.storage.from('evidencias').upload(path,fotoPendente,{contentType:'image/jpeg'});
+    if(upErr){ showToast('Erro ao enviar foto: '+upErr.message,false); if(btn){btn.disabled=false;btn.textContent='Enviar para aprovação';} return; }
+    const { data: pub } = supabase.storage.from('evidencias').getPublicUrl(path);
+    fotoUrl = pub.publicUrl;
+  }
+  const { error: insErr } = await supabase.from('submissions').insert({user_id:state.profile.id,challenge_id:challengeId,foto_url:fotoUrl,comentario});
+  if(insErr){ showToast('Erro ao registrar evidência: '+insErr.message,false); if(btn){btn.disabled=false;btn.textContent='Enviar para aprovação';} return; }
+  fotoPendente = null;
+  setState({modal:null});
+  showToast('Evidência enviada! Aguarde aprovação do administrador.');
+  loadAppTab();
+}
+
+/* ======================= ADMIN SCREENS ======================= */
+function screenAdmin(){
+  let content = `<div class="empty">Carregando…</div>`;
+  const html = `<div class="shell">${sidebarHTML(state.adminTab,true)}<div class="main">${content}</div></div>`;
+  setTimeout(loadAdminData,0);
+  return html;
+}
+let adminCache = {keys:[],users:[],challenges:[],submissions:[]};
+async function loadAdminData(){
+  const [{data:keys},{data:users},{data:chs},{data:subs}] = await Promise.all([
+    supabase.from('access_keys').select('*').order('criado_em',{ascending:false}),
+    supabase.from('profiles').select('*').order('nome',{ascending:true}),
+    supabase.from('challenges').select('*').order('prazo',{ascending:true}),
+    supabase.from('submissions').select('*').order('data',{ascending:false})
+  ]);
+  adminCache = {keys:keys||[],users:users||[],challenges:chs||[],submissions:subs||[]};
+  rerenderMain();
+}
+
+function adminChaves(){
+  const keys = adminCache.keys;
+  return `
+  <div class="page-title"><h1>Chaves de acesso</h1><button class="btn btn-primary btn-small" onclick="setState({modal:{type:'novaChave'}})">+ Gerar chave</button></div>
+  <div class="page-sub">Controle de login: gere chaves com prazo de expiração para novos cadastros.</div>
+  <div class="card"><table>
+    <tr><th>Chave</th><th>Tipo</th><th>Expira em</th><th>Status</th><th>Usada por</th></tr>
+    ${keys.length? keys.map(k=>{
+      const expirada = new Date(k.expira_em+'T23:59:59') < new Date();
+      const uUsou = adminCache.users.find(u=>u.id===k.usado_por);
+      const status = k.usado?`<span class="badge badge-good">Usada</span>`:expirada?`<span class="badge badge-bad">Expirada</span>`:`<span class="badge badge-warn">Ativa</span>`;
+      return `<tr><td class="mono">${k.code}</td><td style="text-transform:capitalize">${k.tipo}</td><td>${fmtDate(k.expira_em)}</td><td>${status}</td><td>${uUsou?'@'+uUsou.username:'—'}</td></tr>`;
+    }).join('') : `<tr><td colspan="5" class="empty">Nenhuma chave gerada ainda.</td></tr>`}
+  </table></div>`;
+}
+async function onGerarChave(){
+  const tipo = document.getElementById('k-tipo').value;
+  const dias = parseInt(document.getElementById('k-dias').value,10)||7;
+  const { data, error } = await supabase.rpc('generate_access_key',{tipo,dias});
+  if(error){ showToast('Erro: '+error.message,false); return; }
+  setState({modal:null});
+  showToast('Chave gerada: '+data);
+  loadAdminData();
+}
+
+function adminDesafios(){
+  const chs = adminCache.challenges;
+  return `
+  <div class="page-title"><h1>Desafios</h1><button class="btn btn-primary btn-small" onclick="setState({modal:{type:'novoDesafio'}})">+ Novo desafio</button></div>
+  <div class="page-sub">Crie e gerencie os objetivos que valem pontos no ranking.</div>
+  ${chs.length? chs.map(c=>`
+    <div class="challenge"><div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">+${c.pontos} pts</span></div>
+      <p>${c.descricao||''}</p>
+      <div class="challenge-foot"><span>Prazo: ${fmtDate(c.prazo)}</span><button class="btn btn-ghost btn-small" onclick="onExcluirDesafio('${c.id}')">Excluir</button></div>
+    </div>`).join('') : `<div class="empty">Nenhum desafio criado ainda.</div>`}`;
+}
+async function onCriarDesafio(){
+  const titulo=document.getElementById('d-titulo').value, descricao=document.getElementById('d-desc').value;
+  const pontos=parseInt(document.getElementById('d-pontos').value,10)||10, prazo=document.getElementById('d-prazo').value;
+  if(!titulo||!prazo){ showToast('Preencha título e prazo.',false); return; }
+  const { error } = await supabase.from('challenges').insert({titulo,descricao,pontos,prazo,criado_por:state.profile.id});
+  if(error){ showToast('Erro: '+error.message,false); return; }
+  setState({modal:null}); showToast('Desafio criado.'); loadAdminData();
+}
+async function onExcluirDesafio(id){
+  const { error } = await supabase.from('challenges').delete().eq('id',id);
+  if(error){ showToast('Erro: '+error.message,false); return; }
+  showToast('Desafio removido.'); loadAdminData();
+}
+
+function adminUsuarios(){
+  const users = adminCache.users;
+  return `
+  <div class="page-title"><h1>Usuários</h1></div>
+  <div class="page-sub">Administração de contas, pontuação e permissões.</div>
+  <div class="card"><table>
+    <tr><th>Nome</th><th>Usuário</th><th>IMC</th><th>Peso</th><th>Pontos</th><th>Admin</th><th></th></tr>
+    ${users.length? users.map(u=>`
+      <tr><td>${u.nome}</td><td class="mono">@${u.username}</td><td>${u.imc}</td><td>${u.peso}kg</td>
+        <td class="mono">${u.pontos}</td><td>${u.is_admin?'<span class="badge badge-good">Sim</span>':'—'}</td>
+        <td><button class="btn btn-ghost btn-small" onclick="onRemoverUsuario('${u.id}')">Remover</button></td></tr>`).join('') : `<tr><td colspan="7" class="empty">Nenhum usuário cadastrado.</td></tr>`}
+  </table></div>
+  <div class="info-box">Remover aqui apaga o perfil e o acesso ao app; a conta de login original só pode ser totalmente apagada no painel do Supabase (Authentication → Users), pois isso exige a chave secreta do projeto.</div>`;
+}
+async function onRemoverUsuario(id){
+  if(id===state.profile.id){ showToast('Você não pode remover sua própria conta.',false); return; }
+  const { error } = await supabase.from('profiles').delete().eq('id',id);
+  if(error){ showToast('Erro: '+error.message,false); return; }
+  showToast('Usuário removido.'); loadAdminData();
+}
+
+function adminSubmissoes(){
+  const subs = adminCache.submissions;
+  const chById = Object.fromEntries(adminCache.challenges.map(c=>[c.id,c]));
+  const userById = Object.fromEntries(adminCache.users.map(u=>[u.id,u]));
+  return `
+  <div class="page-title"><h1>Evidências enviadas</h1></div>
+  <div class="page-sub">Aprove ou rejeite as fotos de comprovação para liberar pontos.</div>
+  ${subs.length? subs.map(s=>{
+    const c = chById[s.challenge_id], u = userById[s.user_id];
+    return `
+    <div class="card" style="margin-bottom:14px;">
+      <div class="challenge-top"><h4 style="margin:0;">@${u?u.username:'?'} — ${c?c.titulo:'(desafio removido)'}</h4>
+        ${s.status==='pendente'?`<span class="badge badge-warn">Pendente</span>`:s.status==='aprovado'?`<span class="badge badge-good">Aprovado</span>`:`<span class="badge badge-bad">Rejeitado</span>`}
+      </div>
+      <div class="helper">${fmtDate(s.data)}${c?` · vale ${c.pontos} pts`:''}</div>
+      ${s.comentario?`<p style="font-size:13px;color:var(--text-dim);margin-top:8px;">"${s.comentario}"</p>`:''}
+      ${s.foto_url ? `<img src="${s.foto_url}" class="photo-thumb" />` : `<div class="helper" style="margin-top:8px;">Sem foto anexada.</div>`}
+      ${s.status==='pendente'?`
+      <div style="display:flex;gap:10px;margin-top:12px;">
+        <button class="btn btn-primary btn-small" onclick="onAprovarSubmissao('${s.id}')">Aprovar</button>
+        <button class="btn btn-ghost btn-small" onclick="setState({modal:{type:'rejeitar',data:{subId:'${s.id}'}}})">Rejeitar</button>
+      </div>`:''}
+    </div>`;
+  }).join('') : `<div class="empty">Nenhuma evidência enviada ainda.</div>`}`;
+}
+async function onAprovarSubmissao(subId){
+  const { error } = await supabase.rpc('approve_submission',{sub_id:subId});
+  if(error){ showToast('Erro: '+error.message,false); return; }
+  showToast('Evidência aprovada e pontos creditados.'); loadAdminData();
+}
+async function onConfirmarRejeicao(subId){
+  const motivo = document.getElementById('r-motivo').value;
+  const { error } = await supabase.rpc('reject_submission',{sub_id:subId,motivo});
+  if(error){ showToast('Erro: '+error.message,false); return; }
+  setState({modal:null}); showToast('Evidência rejeitada.'); loadAdminData();
+}
+
+/* ======================= INIT ======================= */
+render();
+boot();
+
+/* Expõe ao window apenas as funções chamadas pelos onclick/onchange do HTML */
+Object.assign(window, {
+  setState, onField, onLoginClick, onCadastroClick, onAdminLoginClick, handleLogout,
+  openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso,
+  onGerarChave, onCriarDesafio, onExcluirDesafio, onRemoverUsuario,
+  onAprovarSubmissao, onConfirmarRejeicao
+});
+
+})();
+</script>
+</body>
+</html>
