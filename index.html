@@ -42,6 +42,10 @@
   .error-box{background:var(--accent-dim);border:1px solid var(--accent);color:#FFD9CE;padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:14px;}
   .info-box{background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text-dim);padding:10px 12px;border-radius:6px;font-size:12px;margin-top:18px;line-height:1.5;}
   .auth-switch{text-align:center;margin-top:18px;font-size:13px;color:var(--text-dim);}
+  .pwd-wrap{position:relative;}
+  .pwd-wrap input{padding-right:40px;}
+  .pwd-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:15px;padding:4px 6px;line-height:1;}
+  .pwd-toggle:hover{color:var(--text);}
   .shell{display:flex;min-height:100vh;}
   .sidebar{width:230px;flex-shrink:0;background:var(--bg-panel);border-right:1px solid var(--line);padding:26px 18px;display:flex;flex-direction:column;}
   .side-brand{display:flex;align-items:baseline;gap:8px;margin-bottom:34px;padding-left:6px;}
@@ -186,6 +190,12 @@ let state = {
 function setState(patch){ state = {...state,...patch}; render(); }
 // Atualiza um campo de formulário SEM re-renderizar (preserva o foco/cursor enquanto o usuário digita).
 function onField(formKey,field,value){ state[formKey][field] = value; }
+function togglePwd(inputId,btn){
+  const el = document.getElementById(inputId);
+  if(!el) return;
+  if(el.type==='password'){ el.type='text'; btn.textContent='🙈'; }
+  else { el.type='password'; btn.textContent='👁'; }
+}
 function showToast(msg,ok=true){ state.toast={msg,ok}; render(); setTimeout(()=>{ state.toast=null; render(); },2800); }
 
 /* ======================= BOOT / SESSION ======================= */
@@ -193,9 +203,20 @@ async function boot(){
   const { data:{session} } = await supabase.auth.getSession();
   if(session){
     const { data:profile } = await supabase.from('profiles').select('*').eq('id',session.user.id).single();
-    if(profile){ setState({session,profile,screen:'app',appTab:'dashboard'}); return; }
+    if(profile && contaLiberada(profile)){ setState({session,profile,screen:'app',appTab:'dashboard'}); return; }
+    if(profile && !contaLiberada(profile)){ await supabase.auth.signOut(); setState({screen:'login',authError:mensagemBloqueio(profile)}); return; }
   }
   setState({screen:'login'});
+}
+
+function contaLiberada(profile){
+  if(profile.ativo === false) return false;
+  if(profile.suspenso_ate && profile.suspenso_ate >= new Date().toISOString().slice(0,10)) return false;
+  return true;
+}
+function mensagemBloqueio(profile){
+  if(profile.ativo === false) return 'Sua conta foi desativada pelo administrador.';
+  return `Sua conta está suspensa até ${fmtDate(profile.suspenso_ate)}.`;
 }
 
 /* ======================= AUTH ======================= */
@@ -207,6 +228,7 @@ async function handleLogin(username,senha,lembrar){
   if(error){ setState({busy:false,authError:'Usuário ou senha inválidos.'}); return; }
   const { data:profile } = await supabase.from('profiles').select('*').eq('id',data.user.id).single();
   if(!profile){ setState({busy:false,authError:'Conta sem perfil associado. Contate o administrador.'}); return; }
+  if(!contaLiberada(profile)){ await supabase.auth.signOut(); setState({busy:false,authError:mensagemBloqueio(profile)}); return; }
   if(HAS_LOCAL_STORAGE) localStorage.setItem('fmfit_last_user',username.trim().toLowerCase());
   setState({busy:false,session:data.session,profile,screen:'app',appTab:'dashboard'});
 }
@@ -285,7 +307,7 @@ function screenLogin(){
       ${state.authError?`<div class="error-box">${state.authError}</div>`:''}
       <form autocomplete="on" onsubmit="event.preventDefault(); onLoginClick(); return false;">
         <div class="field"><label>Usuário</label><input name="username" autocomplete="username" value="${f.username}" oninput="onField('loginForm','username',this.value)" placeholder="seu.usuario" /></div>
-        <div class="field"><label>Senha</label><input name="password" type="password" autocomplete="current-password" value="${f.senha}" oninput="onField('loginForm','senha',this.value)" placeholder="••••••••" /></div>
+        <div class="field"><label>Senha</label><div class="pwd-wrap"><input id="login-pass" name="password" type="password" autocomplete="current-password" value="${f.senha}" oninput="onField('loginForm','senha',this.value)" placeholder="••••••••" /><button type="button" class="pwd-toggle" onclick="togglePwd('login-pass',this)">👁</button></div></div>
         <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);margin-bottom:16px;">
           <input type="checkbox" ${f.lembrar?'checked':''} onchange="onField('loginForm','lembrar',this.checked)" style="width:auto;" /> Manter-me conectado neste navegador
         </label>
@@ -315,7 +337,7 @@ function screenCadastro(){
         <div class="field"><label>Chave de acesso</label><input value="${f.chave}" oninput="onField('cadastroForm','chave',this.value)" placeholder="Chave fornecida pelo administrador" /></div>
         <div class="field"><label>Nome completo</label><input value="${f.nome}" oninput="onField('cadastroForm','nome',this.value)" placeholder="Seu nome" /></div>
         <div class="field"><label>Usuário</label><input name="username" autocomplete="username" value="${f.username}" oninput="onField('cadastroForm','username',this.value)" placeholder="ex: joao.silva" /></div>
-        <div class="field"><label>Senha</label><input name="new-password" type="password" autocomplete="new-password" value="${f.senha}" oninput="onField('cadastroForm','senha',this.value)" placeholder="mín. 6 caracteres" /></div>
+        <div class="field"><label>Senha</label><div class="pwd-wrap"><input id="cadastro-pass" name="new-password" type="password" autocomplete="new-password" value="${f.senha}" oninput="onField('cadastroForm','senha',this.value)" placeholder="mín. 6 caracteres" /><button type="button" class="pwd-toggle" onclick="togglePwd('cadastro-pass',this)">👁</button></div></div>
         <div class="row2">
           <div class="field"><label>Idade</label><input type="number" min="10" max="100" value="${f.idade}" oninput="onField('cadastroForm','idade',this.value)" placeholder="anos" /></div>
           <div class="field"><label>Sexo</label><select onchange="onField('cadastroForm','sexo',this.value)">
@@ -356,7 +378,7 @@ function screenAdminLogin(){
       ${state.authError?`<div class="error-box">${state.authError}</div>`:''}
       <form autocomplete="on" onsubmit="event.preventDefault(); onAdminLoginClick(); return false;">
         <div class="field"><label>Usuário admin</label><input name="username" autocomplete="username" value="${f.username}" oninput="onField('adminLoginForm','username',this.value)" /></div>
-        <div class="field"><label>Senha</label><input name="password" type="password" autocomplete="current-password" value="${f.senha}" oninput="onField('adminLoginForm','senha',this.value)" /></div>
+        <div class="field"><label>Senha</label><div class="pwd-wrap"><input id="adminlogin-pass" name="password" type="password" autocomplete="current-password" value="${f.senha}" oninput="onField('adminLoginForm','senha',this.value)" /><button type="button" class="pwd-toggle" onclick="togglePwd('adminlogin-pass',this)">👁</button></div></div>
         <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);margin-bottom:16px;">
           <input type="checkbox" ${f.lembrar?'checked':''} onchange="onField('adminLoginForm','lembrar',this.checked)" style="width:auto;" /> Manter-me conectado neste navegador
         </label>
@@ -377,6 +399,7 @@ async function onAdminLoginClick(){
   if(error){ setState({busy:false,authError:'Credenciais inválidas.'}); return; }
   const { data:profile } = await supabase.from('profiles').select('*').eq('id',data.user.id).single();
   if(!profile || !profile.is_admin){ setState({busy:false,authError:'Esta conta não tem permissão de administrador.'}); await supabase.auth.signOut(); return; }
+  if(!contaLiberada(profile)){ await supabase.auth.signOut(); setState({busy:false,authError:mensagemBloqueio(profile)}); return; }
   if(HAS_LOCAL_STORAGE) localStorage.setItem('fmfit_last_user',u);
   setState({busy:false,session:data.session,profile,screen:'admin',adminTab:'chaves'});
 }
@@ -612,6 +635,25 @@ function renderModal(){
       </div>
     </div>`;
   }
+  if(m.type==='desativarUsuario'){
+    return `
+    <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
+      <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
+        <h3>Desativar usuário</h3>
+        <div class="helper" style="margin-bottom:14px;">${m.data.nome}</div>
+        <div class="field"><label>Por quanto tempo?</label>
+          <select id="des-tempo">
+            <option value="1">1 dia</option>
+            <option value="3">3 dias</option>
+            <option value="7">7 dias</option>
+            <option value="30">30 dias</option>
+            <option value="indef">Permanente (até reativar manualmente)</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="onDesativarUsuario('${m.data.userId}',document.getElementById('des-tempo').value)">Confirmar</button>
+      </div>
+    </div>`;
+  }
   return '';
 }
 
@@ -712,17 +754,44 @@ async function onExcluirDesafio(id){
 
 function adminUsuarios(){
   const users = adminCache.users;
+  const hoje = new Date().toISOString().slice(0,10);
   return `
   <div class="page-title"><h1>Usuários</h1></div>
   <div class="page-sub">Administração de contas, pontuação e permissões.</div>
   <div class="card"><table>
-    <tr><th>Nome</th><th>Usuário</th><th>IMC</th><th>Peso</th><th>Pontos</th><th>Admin</th><th></th></tr>
-    ${users.length? users.map(u=>`
+    <tr><th>Nome</th><th>Usuário</th><th>IMC</th><th>Peso</th><th>Pontos</th><th>Admin</th><th>Status</th><th></th></tr>
+    ${users.length? users.map(u=>{
+      const bloqueado = u.ativo===false || (u.suspenso_ate && u.suspenso_ate>=hoje);
+      let status;
+      if(u.ativo===false) status = `<span class="badge badge-bad">Desativado</span>`;
+      else if(u.suspenso_ate && u.suspenso_ate>=hoje) status = `<span class="badge badge-warn">Suspenso até ${fmtDate(u.suspenso_ate)}</span>`;
+      else status = `<span class="badge badge-good">Ativo</span>`;
+      return `
       <tr><td>${u.nome}</td><td class="mono">@${u.username}</td><td>${u.imc}</td><td>${u.peso}kg</td>
         <td class="mono">${u.pontos}</td><td>${u.is_admin?'<span class="badge badge-good">Sim</span>':'—'}</td>
-        <td><button class="btn btn-ghost btn-small" onclick="onRemoverUsuario('${u.id}')">Remover</button></td></tr>`).join('') : `<tr><td colspan="7" class="empty">Nenhum usuário cadastrado.</td></tr>`}
+        <td>${status}</td>
+        <td style="display:flex;gap:6px;flex-wrap:wrap;">
+          ${bloqueado
+            ? `<button class="btn btn-ghost btn-small" onclick="onReativarUsuario('${u.id}')">Reativar</button>`
+            : `<button class="btn btn-ghost btn-small" onclick="setState({modal:{type:'desativarUsuario',data:{userId:'${u.id}',nome:'${u.nome.replace(/'/g,"\\'")}'}}})">Desativar</button>`}
+          <button class="btn btn-ghost btn-small" onclick="onRemoverUsuario('${u.id}')">Remover</button>
+        </td></tr>`;
+    }).join('') : `<tr><td colspan="8" class="empty">Nenhum usuário cadastrado.</td></tr>`}
   </table></div>
-  <div class="info-box">Remover aqui apaga o perfil e o acesso ao app; a conta de login original só pode ser totalmente apagada no painel do Supabase (Authentication → Users), pois isso exige a chave secreta do projeto.</div>`;
+  <div class="info-box">"Desativar" bloqueia o login imediatamente (permanente ou por um período escolhido). "Remover" apaga o perfil do app; a conta de login original só pode ser totalmente apagada no painel do Supabase (Authentication → Users).</div>`;
+}
+async function onDesativarUsuario(userId,dias){
+  const patch = dias==='indef' ? {ativo:false,suspenso_ate:null} : {ativo:true,suspenso_ate:new Date(Date.now()+parseInt(dias,10)*86400000).toISOString().slice(0,10)};
+  const { error } = await supabase.from('profiles').update(patch).eq('id',userId);
+  if(error){ showToast('Erro: '+error.message,false); return; }
+  setState({modal:null});
+  showToast(dias==='indef' ? 'Usuário desativado.' : 'Usuário suspenso pelo período escolhido.');
+  loadAdminData();
+}
+async function onReativarUsuario(userId){
+  const { error } = await supabase.from('profiles').update({ativo:true,suspenso_ate:null}).eq('id',userId);
+  if(error){ showToast('Erro: '+error.message,false); return; }
+  showToast('Usuário reativado.'); loadAdminData();
 }
 async function onRemoverUsuario(id){
   if(id===state.profile.id){ showToast('Você não pode remover sua própria conta.',false); return; }
@@ -774,10 +843,10 @@ boot();
 
 /* Expõe ao window apenas as funções chamadas pelos onclick/onchange do HTML */
 Object.assign(window, {
-  setState, onField, onLoginClick, onCadastroClick, onAdminLoginClick, handleLogout,
+  setState, onField, togglePwd, onLoginClick, onCadastroClick, onAdminLoginClick, handleLogout,
   openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso,
   onGerarChave, onCriarDesafio, onExcluirDesafio, onRemoverUsuario,
-  onAprovarSubmissao, onConfirmarRejeicao
+  onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario
 });
 
 })();
