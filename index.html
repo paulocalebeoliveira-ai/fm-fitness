@@ -522,14 +522,23 @@ function tabDashboard(){
   </div>
   <div class="grid grid-2">
     <div class="card"><h3>Desafio de hoje</h3>
-      ${hojeDesafios.length? hojeDesafios.map(c=>`
+      ${hojeDesafios.length? hojeDesafios.map(c=>{
+        const etapas = c.etapas||1;
+        const pontosInfo = etapas>1 ? `+${c.pontos} pts × ${etapas} etapas` : `+${c.pontos} pts`;
+        let progresso = '';
+        if(etapas>1){
+          const concluidas = Array.from({length:etapas},(_,i)=>i+1).filter(n=>cache.mySubmissions.some(x=>x.challenge_id===c.id&&x.etapa===n&&x.status==='aprovado')).length;
+          progresso = ` · ${concluidas}/${etapas} etapas concluídas`;
+        }
+        return `
         <div class="challenge" style="margin-bottom:8px;">
-          <div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">+${c.pontos} pts</span></div>
+          <div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">${pontosInfo}</span></div>
           <p>${c.descricao||''}</p>
-          <div class="challenge-foot"><span>${c.data_inicio===c.prazo?'Válido só hoje':`Válido até ${fmtDate(c.prazo)}`}</span>
+          <div class="challenge-foot"><span>${(c.data_inicio===c.prazo?'Válido só hoje':`Válido até ${fmtDate(c.prazo)}`)}${progresso}</span>
             <button class="btn btn-ghost btn-small" onclick="setState({appTab:'desafios'})">Ver e enviar →</button>
           </div>
-        </div>`).join('') : `<div class="empty">Nenhum desafio programado para hoje.</div>`}
+        </div>`;
+      }).join('') : `<div class="empty">Nenhum desafio programado para hoje.</div>`}
     </div>
     <div class="card"><h3>Evolução de peso</h3>
       <div style="font-size:13px;color:var(--text-dim);margin-bottom:10px;">Peso inicial: <b class="mono" style="color:var(--text)">${u.peso_inicial}kg</b> → Atual: <b class="mono" style="color:var(--text)">${u.peso}kg</b></div>
@@ -545,13 +554,20 @@ function tabDesafios(){
   const hoje = new Date().toISOString().slice(0,10);
   const chs = cache.challenges.filter(c=>c.data_inicio<=hoje && c.prazo>=hoje);
   const minhas = cache.mySubmissions;
-  function statusFor(id){ return minhas.filter(x=>x.challenge_id===id).sort((a,b)=>b.data.localeCompare(a.data))[0]; }
   return `
   <div class="page-title"><h1>Desafio de hoje</h1></div>
   <div class="page-sub">${fmtDate(hoje)} · cumpra o objetivo e envie a evidência para pontuar. Perdeu algum dia? Confira em "Histórico".</div>
-  ${chs.length? chs.map(c=>{
-    const s = statusFor(c.id);
-    const periodo = c.data_inicio===c.prazo ? `Válido só em ${fmtDate(c.prazo)}` : `Válido de ${fmtDate(c.data_inicio)} até ${fmtDate(c.prazo)}`;
+  ${chs.length? chs.map(c=>challengeCardHTML(c,minhas)).join('') : `<div class="empty">Nenhum desafio programado para hoje. Volte amanhã ou confira o Histórico.</div>`}`;
+}
+
+// Monta o card de um desafio, lidando com desafios de etapa única e de múltiplas etapas.
+function challengeCardHTML(c,minhas){
+  const etapas = c.etapas||1;
+  const periodo = c.data_inicio===c.prazo ? `Válido só em ${fmtDate(c.prazo)}` : `Válido de ${fmtDate(c.data_inicio)} até ${fmtDate(c.prazo)}`;
+  const pontosInfo = etapas>1 ? `+${c.pontos} pts × ${etapas} etapas` : `+${c.pontos} pts`;
+
+  if(etapas<=1){
+    const s = minhas.filter(x=>x.challenge_id===c.id).sort((a,b)=>b.data.localeCompare(a.data))[0];
     let statusBadge='';
     if(s){
       if(s.status==='aprovado') statusBadge = `<span class="badge badge-good">Aprovado ✓</span>`;
@@ -560,27 +576,59 @@ function tabDesafios(){
     }
     return `
     <div class="challenge">
-      <div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">+${c.pontos} pts</span></div>
+      <div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">${pontosInfo}</span></div>
       <p>${c.descricao||''}</p>
       <div class="challenge-foot">
         <span>${periodo}</span>
         <div style="display:flex;gap:8px;align-items:center;">
           ${statusBadge}
-          ${(!s||s.status==='rejeitado')?`<button class="btn btn-primary btn-small" onclick="openEnvioModal('${c.id}')">Enviar evidência</button>`:''}
+          ${(!s||s.status==='rejeitado')?`<button class="btn btn-primary btn-small" onclick="openEnvioModal('${c.id}',1)">Enviar evidência</button>`:''}
         </div>
       </div>
     </div>`;
-  }).join('') : `<div class="empty">Nenhum desafio programado para hoje. Volte amanhã ou confira o Histórico.</div>`}`;
+  }
+
+  // Desafio com múltiplas etapas (ex: caminhar 4 dias)
+  const perEtapa = [];
+  for(let n=1;n<=etapas;n++){
+    const s = minhas.filter(x=>x.challenge_id===c.id && x.etapa===n).sort((a,b)=>b.data.localeCompare(a.data))[0];
+    perEtapa.push({n,s});
+  }
+  const concluidas = perEtapa.filter(e=>e.s && e.s.status==='aprovado').length;
+  const proxima = perEtapa.find(e=>!e.s || e.s.status!=='aprovado');
+  const dotColor = (e)=> !e.s ? 'var(--line)' : e.s.status==='aprovado' ? 'var(--good)' : e.s.status==='rejeitado' ? 'var(--accent)' : 'var(--warn)';
+  const dots = perEtapa.map(e=>`<span title="Etapa ${e.n}" style="width:14px;height:14px;border-radius:50%;background:${dotColor(e)};display:inline-block;"></span>`).join('');
+
+  return `
+  <div class="challenge">
+    <div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">${pontosInfo}</span></div>
+    <p>${c.descricao||''}</p>
+    <div style="display:flex;gap:6px;margin:10px 0;">${dots}</div>
+    <div class="challenge-foot">
+      <span>${periodo} · ${concluidas}/${etapas} etapas concluídas</span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        ${proxima
+          ? (proxima.s && proxima.s.status==='pendente'
+              ? `<span class="badge badge-warn">Etapa ${proxima.n} em análise</span>`
+              : `<button class="btn btn-primary btn-small" onclick="openEnvioModal('${c.id}',${proxima.n})">${proxima.s&&proxima.s.status==='rejeitado'?`Reenviar etapa ${proxima.n}`:`Enviar etapa ${proxima.n} de ${etapas}`}</button>`)
+          : `<span class="badge badge-good">Todas as etapas concluídas ✓</span>`}
+      </div>
+    </div>
+  </div>`;
 }
-function openEnvioModal(challengeId){ setState({modal:{type:'envio',data:{challengeId}}}); }
+function openEnvioModal(challengeId,etapa){ setState({modal:{type:'envio',data:{challengeId,etapa:etapa||1}}}); }
 
 /* ---- HISTÓRICO (desafios de dias passados: concluído ou perdido) ---- */
 function tabHistorico(){
   const hoje = new Date().toISOString().slice(0,10);
   const passados = cache.challenges.filter(c=>c.prazo<hoje).sort((a,b)=>b.prazo.localeCompare(a.prazo));
   const minhas = cache.mySubmissions;
-  function aprovado(id){ return minhas.some(x=>x.challenge_id===id && x.status==='aprovado'); }
-  const concluidos = passados.filter(c=>aprovado(c.id)).length;
+  function etapasAprovadas(c){
+    const etapas = c.etapas||1; let count=0;
+    for(let n=1;n<=etapas;n++){ if(minhas.some(x=>x.challenge_id===c.id && x.etapa===n && x.status==='aprovado')) count++; }
+    return count;
+  }
+  const concluidos = passados.filter(c=>etapasAprovadas(c)===(c.etapas||1)).length;
   const perdidos = passados.length - concluidos;
   return `
   <div class="page-title"><h1>Histórico</h1></div>
@@ -592,11 +640,15 @@ function tabHistorico(){
   </div>
   <div class="card">
     ${passados.length? passados.map(c=>{
-      const ok = aprovado(c.id);
+      const etapas = c.etapas||1;
+      const feitas = etapasAprovadas(c);
+      const badge = etapas>1
+        ? (feitas===etapas ? `<span class="badge badge-good">${feitas}/${etapas} etapas ✓</span>` : `<span class="badge badge-bad">${feitas}/${etapas} etapas — perdeu ${etapas-feitas}</span>`)
+        : (feitas===1 ? `<span class="badge badge-good">Concluído ✓</span>` : `<span class="badge badge-bad">Perdido</span>`);
       return `
       <div class="challenge-foot" style="padding:10px 0;border-bottom:1px solid var(--line);">
         <span>${fmtDate(c.prazo)} — ${c.titulo}</span>
-        ${ok? `<span class="badge badge-good">Concluído ✓</span>` : `<span class="badge badge-bad">Perdido</span>`}
+        ${badge}
       </div>`;
     }).join('') : `<div class="empty">Ainda não há dias passados no seu histórico.</div>`}
   </div>`;
@@ -688,11 +740,12 @@ function renderModal(){
   const m = state.modal; if(!m) return '';
   if(m.type==='envio'){
     const c = cache.challenges.find(x=>x.id===m.data.challengeId);
+    const etapas = c ? (c.etapas||1) : 1;
     return `
     <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
       <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
         <h3>Enviar evidência</h3>
-        <div class="helper" style="margin-bottom:14px;">${c?c.titulo:''}</div>
+        <div class="helper" style="margin-bottom:14px;">${c?c.titulo:''}${etapas>1?` — Etapa ${m.data.etapa} de ${etapas}`:''}</div>
         <div class="field">
           <label>Foto comprovando o objetivo (opcional)</label>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -708,7 +761,7 @@ function renderModal(){
         </div>
         <img id="m-preview" class="photo-thumb" style="display:none;" />
         <div class="field" style="margin-top:12px;"><label>Comentário (opcional)</label><textarea id="m-comentario" rows="3" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:10px;"></textarea></div>
-        <button class="btn btn-primary" id="m-enviar-btn" onclick="onEnviarEvidencia('${m.data.challengeId}')">Enviar para aprovação</button>
+        <button class="btn btn-primary" id="m-enviar-btn" onclick="onEnviarEvidencia('${m.data.challengeId}',${m.data.etapa||1})">Enviar para aprovação</button>
       </div>
     </div>`;
   }
@@ -730,7 +783,9 @@ function renderModal(){
         <h3>Novo desafio</h3>
         <div class="field"><label>Título</label><input id="d-titulo" placeholder="ex: 5km correndo" /></div>
         <div class="field"><label>Descrição / objetivo</label><textarea id="d-desc" rows="3" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:10px;"></textarea></div>
-        <div class="field"><label>Pontos</label><input id="d-pontos" type="number" value="10" min="1" /></div>
+        <div class="field"><label>Pontos por etapa</label><input id="d-pontos" type="number" value="10" min="1" /></div>
+        <div class="field"><label>Número de etapas</label><input id="d-etapas" type="number" value="1" min="1" /></div>
+        <div class="helper" style="margin-bottom:14px;">Ex: "Caminhar 4 dias" → 4 etapas. O usuário envia uma evidência por etapa, e cada aprovação soma os pontos.</div>
         <div class="row2">
           <div class="field"><label>Aparece a partir de</label><input id="d-inicio" type="date" /></div>
           <div class="field"><label>Até (prazo final)</label><input id="d-prazo" type="date" /></div>
@@ -748,7 +803,9 @@ function renderModal(){
         <h3>Editar desafio</h3>
         <div class="field"><label>Título</label><input id="e-titulo" value="${(c.titulo||'').replace(/"/g,'&quot;')}" /></div>
         <div class="field"><label>Descrição / objetivo</label><textarea id="e-desc" rows="3" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:10px;">${c.descricao||''}</textarea></div>
-        <div class="field"><label>Pontos</label><input id="e-pontos" type="number" value="${c.pontos}" min="1" /></div>
+        <div class="field"><label>Pontos por etapa</label><input id="e-pontos" type="number" value="${c.pontos}" min="1" /></div>
+        <div class="field"><label>Número de etapas</label><input id="e-etapas" type="number" value="${c.etapas||1}" min="1" /></div>
+        <div class="helper" style="margin-bottom:14px;">Cuidado ao reduzir o número de etapas de um desafio que já tem evidências enviadas em etapas mais altas.</div>
         <div class="row2">
           <div class="field"><label>Aparece a partir de</label><input id="e-inicio" type="date" value="${c.data_inicio}" /></div>
           <div class="field"><label>Até (prazo final)</label><input id="e-prazo" type="date" value="${c.prazo}" /></div>
@@ -799,7 +856,7 @@ async function onFotoSelecionada(ev){
   const img = document.getElementById('m-preview');
   img.src = URL.createObjectURL(fotoPendente); img.style.display='block';
 }
-async function onEnviarEvidencia(challengeId){
+async function onEnviarEvidencia(challengeId,etapa){
   const btn = document.getElementById('m-enviar-btn'); if(btn){ btn.disabled=true; btn.textContent='Enviando…'; }
   const comentario = document.getElementById('m-comentario').value;
   let fotoUrl = null;
@@ -810,7 +867,7 @@ async function onEnviarEvidencia(challengeId){
     const { data: pub } = supabase.storage.from('evidencias').getPublicUrl(path);
     fotoUrl = pub.publicUrl;
   }
-  const { error: insErr } = await supabase.from('submissions').insert({user_id:state.profile.id,challenge_id:challengeId,foto_url:fotoUrl,comentario});
+  const { error: insErr } = await supabase.from('submissions').insert({user_id:state.profile.id,challenge_id:challengeId,foto_url:fotoUrl,comentario,etapa:etapa||1});
   if(insErr){ showToast('Erro ao registrar evidência: '+insErr.message,false); if(btn){btn.disabled=false;btn.textContent='Enviar para aprovação';} return; }
   fotoPendente = null;
   setState({modal:null});
@@ -866,13 +923,15 @@ function adminDesafios(){
   const chs = adminCache.challenges;
   return `
   <div class="page-title"><h1>Desafios</h1><button class="btn btn-primary btn-small" onclick="setState({modal:{type:'novoDesafio'}})">+ Novo desafio</button></div>
-  <div class="page-sub">Crie e gerencie os objetivos que valem pontos no ranking. Use "Editar" para mudar o período em que um desafio aparece para os usuários.</div>
+  <div class="page-sub">Crie e gerencie os objetivos que valem pontos no ranking. Use "Editar" para mudar o período ou o número de etapas.</div>
   ${chs.length? chs.map(c=>{
     const periodo = c.data_inicio===c.prazo ? fmtDate(c.prazo) : `${fmtDate(c.data_inicio)} até ${fmtDate(c.prazo)}`;
+    const etapas = c.etapas||1;
+    const pontosInfo = etapas>1 ? `+${c.pontos} pts × ${etapas} etapas = ${c.pontos*etapas} pts` : `+${c.pontos} pts`;
     return `
-    <div class="challenge"><div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">+${c.pontos} pts</span></div>
+    <div class="challenge"><div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">${pontosInfo}</span></div>
       <p>${c.descricao||''}</p>
-      <div class="challenge-foot"><span>Aparece: ${periodo}</span>
+      <div class="challenge-foot"><span>Aparece: ${periodo}${etapas>1?` · ${etapas} etapas`:''}</span>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-ghost btn-small" onclick='setState({modal:{type:"editarDesafio",data:${JSON.stringify(c).replace(/'/g,"&#39;")}}})'>Editar</button>
           <button class="btn btn-ghost btn-small" onclick="onExcluirDesafio('${c.id}')">Excluir</button>
@@ -884,20 +943,22 @@ function adminDesafios(){
 async function onCriarDesafio(){
   const titulo=document.getElementById('d-titulo').value, descricao=document.getElementById('d-desc').value;
   const pontos=parseInt(document.getElementById('d-pontos').value,10)||10;
+  const etapas=parseInt(document.getElementById('d-etapas').value,10)||1;
   const dataInicio=document.getElementById('d-inicio').value, prazo=document.getElementById('d-prazo').value;
   if(!titulo||!prazo||!dataInicio){ showToast('Preencha título, início e prazo.',false); return; }
   if(dataInicio>prazo){ showToast('A data de início não pode ser depois do prazo final.',false); return; }
-  const { error } = await supabase.from('challenges').insert({titulo,descricao,pontos,data_inicio:dataInicio,prazo,criado_por:state.profile.id});
+  const { error } = await supabase.from('challenges').insert({titulo,descricao,pontos,etapas,data_inicio:dataInicio,prazo,criado_por:state.profile.id});
   if(error){ showToast('Erro: '+error.message,false); return; }
   setState({modal:null}); showToast('Desafio criado.'); loadAdminData();
 }
 async function onSalvarEdicaoDesafio(id){
   const titulo=document.getElementById('e-titulo').value, descricao=document.getElementById('e-desc').value;
   const pontos=parseInt(document.getElementById('e-pontos').value,10)||10;
+  const etapas=parseInt(document.getElementById('e-etapas').value,10)||1;
   const dataInicio=document.getElementById('e-inicio').value, prazo=document.getElementById('e-prazo').value;
   if(!titulo||!prazo||!dataInicio){ showToast('Preencha título, início e prazo.',false); return; }
   if(dataInicio>prazo){ showToast('A data de início não pode ser depois do prazo final.',false); return; }
-  const { error } = await supabase.from('challenges').update({titulo,descricao,pontos,data_inicio:dataInicio,prazo}).eq('id',id);
+  const { error } = await supabase.from('challenges').update({titulo,descricao,pontos,etapas,data_inicio:dataInicio,prazo}).eq('id',id);
   if(error){ showToast('Erro: '+error.message,false); return; }
   setState({modal:null}); showToast('Desafio atualizado — o período de exibição foi ajustado.'); loadAdminData();
 }
@@ -973,7 +1034,7 @@ function adminSubmissoes(){
     const c = chById[s.challenge_id], u = userById[s.user_id];
     return `
     <div class="card" style="margin-bottom:14px;">
-      <div class="challenge-top"><h4 style="margin:0;">@${u?u.username:'?'} — ${c?c.titulo:'(desafio removido)'}</h4>
+      <div class="challenge-top"><h4 style="margin:0;">@${u?u.username:'?'} — ${c?c.titulo:'(desafio removido)'}${c&&(c.etapas||1)>1?` (Etapa ${s.etapa||1}/${c.etapas})`:''}</h4>
         ${s.status==='pendente'?`<span class="badge badge-warn">Pendente</span>`:s.status==='aprovado'?`<span class="badge badge-good">Aprovado</span>`:`<span class="badge badge-bad">Rejeitado</span>`}
       </div>
       <div class="helper">${fmtDate(s.data)}${c?` · vale ${c.pontos} pts`:''}</div>
