@@ -64,7 +64,7 @@
   .nav-item.active{background:var(--bg-panel-2);color:var(--text);}
   .nav-item.active .bib{color:var(--accent);}
   .nav-item:hover{color:var(--text);}
-  .side-foot{margin-top:auto;padding-top:16px;border-top:1px solid var(--line);}
+  .side-foot{margin-top:auto;padding-top:16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:2px;}
   .user-chip{display:flex;align-items:center;gap:10px;padding:8px 6px;}
   .avatar{width:34px;height:34px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0;}
   .user-chip .who{font-size:13px;} .user-chip .who .u{color:var(--text-dim);font-size:11px;}
@@ -121,7 +121,8 @@
       transform:translateX(-100%); transition:transform .25s ease; box-shadow:4px 0 24px rgba(0,0,0,0.5);
     }
     .sidebar.open{transform:translateX(0);}
-    .side-brand,.side-foot{display:flex;} /* mantém as opções completas, igual ao desktop */
+    .side-brand{display:flex;}
+    .side-foot{display:flex;flex-direction:column;} /* mantém as opções empilhadas, igual ao desktop */
     .sidebar-close-mobile{display:block;position:absolute;top:18px;right:16px;background:none;border:none;color:var(--text-dim);font-size:20px;}
     .sidebar-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:40;display:none;}
     .sidebar-overlay.show{display:block;}
@@ -180,6 +181,10 @@ function daysLeft(dateStr){ const d=new Date(dateStr+'T23:59:59'); return Math.c
 function fmtDate(dateStr){ if(!dateStr) return '—'; return new Date(dateStr+'T12:00:00').toLocaleDateString('pt-BR'); }
 function fmtDateTime(ts){ if(!ts) return '—'; return new Date(ts).toLocaleDateString('pt-BR'); }
 function initials(nome){ return (nome||'?').split(' ').filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join(''); }
+function avatarHTML(user,extraStyle){
+  if(user && user.avatar_url) return `<div class="avatar" style="${extraStyle||''}padding:0;overflow:hidden;"><img src="${user.avatar_url}" style="width:100%;height:100%;object-fit:cover;" /></div>`;
+  return `<div class="avatar" style="${extraStyle||''}">${initials(user?.nome)}</div>`;
+}
 function compressImageToBlob(file,maxW=480,quality=0.55){
   return new Promise((resolve,reject)=>{
     const reader = new FileReader();
@@ -454,7 +459,7 @@ function sidebarHTML(active,isAdminPanel){
     <div class="side-foot">
       ${isAdminPanel?`<button class="nav-item" onclick="setState({screen:'app',appTab:'dashboard',sidebarOpen:false})"><span class="bib">←</span>Ver como usuário</button>`:''}
       ${u&&u.is_admin?`<button class="nav-item" onclick="setState({screen:'admin',adminTab:'chaves',sidebarOpen:false})"><span class="bib">⚑</span>Painel admin</button>`:''}
-      <div class="user-chip"><div class="avatar">${initials(u?.nome)}</div><div class="who">${u?.nome}<div class="u">@${u?.username}</div></div></div>
+      <div class="user-chip">${avatarHTML(u)}<div class="who">${u?.nome}<div class="u">@${u?.username}</div></div></div>
       ${state.canInstall?`<button class="nav-item" onclick="onInstallClick()"><span class="bib">📲</span>Instalar app</button>`:''}
       <button class="nav-item" onclick="handleLogout()"><span class="bib">×</span>Sair</button>
     </div>
@@ -610,7 +615,7 @@ function tabRanking(){
       return `
       <div class="rank-row ${u.id===me?'me':''}">
         <div class="bib-num">${String(i+1).padStart(2,'0')}</div>
-        <div class="avatar" style="width:30px;height:30px;font-size:12px;">${initials(u.nome)}</div>
+        ${avatarHTML(u,'width:30px;height:30px;font-size:12px;')}
         <div class="rank-name"><div class="n">${u.nome}${u.id===me?' (você)':''}</div><div class="m">IMC ${u.imc??'—'} · ${classIMC(u.imc).label}</div></div>
         ${evo}<div class="rank-pts">${u.pontos} pts</div>
       </div>`;
@@ -624,6 +629,17 @@ function tabPerfil(){
   return `
   <div class="page-title"><h1>Perfil</h1></div>
   <div class="page-sub">Atualize seu peso para recalcular o IMC e acompanhar sua evolução.</div>
+  <div class="card" style="margin-bottom:18px;display:flex;align-items:center;gap:18px;">
+    ${avatarHTML(u,'width:64px;height:64px;font-size:22px;')}
+    <div>
+      <div style="font-weight:600;">${u.nome}</div>
+      <div class="helper" style="margin-bottom:8px;">@${u.username}</div>
+      <label class="btn btn-ghost btn-small" style="width:auto;cursor:pointer;">
+        📷 ${u.avatar_url?'Trocar foto de perfil':'Adicionar foto de perfil'}
+        <input type="file" id="p-avatar" accept="image/*" onchange="onAvatarSelecionado(event)" style="display:none;" />
+      </label>
+    </div>
+  </div>
   <div class="grid grid-2">
     <div class="card"><h3>Dados cadastrais</h3>
       <table>
@@ -639,6 +655,22 @@ function tabPerfil(){
       <div id="p-historico" class="info-box">Carregando histórico…</div>
     </div>
   </div>`;
+}
+async function onAvatarSelecionado(ev){
+  const file = ev.target.files[0]; if(!file) return;
+  showToast('Enviando foto…');
+  try{
+    const blob = await compressImageToBlob(file, 320, 0.7);
+    const path = `${state.profile.id}/avatar.jpg`;
+    const { error: upErr } = await supabase.storage.from('avatars').upload(path, blob, {contentType:'image/jpeg', upsert:true});
+    if(upErr){ showToast('Erro ao enviar foto: '+upErr.message,false); return; }
+    const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
+    const avatarUrl = pub.publicUrl + '?t=' + Date.now(); // evita cache antigo do navegador
+    const { error: updErr } = await supabase.from('profiles').update({avatar_url:avatarUrl}).eq('id',state.profile.id);
+    if(updErr){ showToast('Erro ao salvar foto: '+updErr.message,false); return; }
+    await refreshProfile();
+    showToast('Foto de perfil atualizada.');
+  }catch(e){ showToast('Não foi possível processar a imagem.',false); }
 }
 async function onAtualizarPeso(){
   const novoPeso = parseFloat(document.getElementById('p-novo-peso').value);
@@ -661,7 +693,19 @@ function renderModal(){
       <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
         <h3>Enviar evidência</h3>
         <div class="helper" style="margin-bottom:14px;">${c?c.titulo:''}</div>
-        <div class="field"><label>Foto comprovando o objetivo (opcional)</label><input type="file" id="m-foto" accept="image/*" onchange="onFotoSelecionada(event)" /></div>
+        <div class="field">
+          <label>Foto comprovando o objetivo (opcional)</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <label class="btn btn-ghost btn-small" style="width:auto;cursor:pointer;">
+              📷 Tirar foto agora
+              <input type="file" id="m-foto-camera" accept="image/*" capture="environment" onchange="onFotoSelecionada(event)" style="display:none;" />
+            </label>
+            <label class="btn btn-ghost btn-small" style="width:auto;cursor:pointer;">
+              🖼️ Escolher da galeria
+              <input type="file" id="m-foto-galeria" accept="image/*" onchange="onFotoSelecionada(event)" style="display:none;" />
+            </label>
+          </div>
+        </div>
         <img id="m-preview" class="photo-thumb" style="display:none;" />
         <div class="field" style="margin-top:12px;"><label>Comentário (opcional)</label><textarea id="m-comentario" rows="3" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:10px;"></textarea></div>
         <button class="btn btn-primary" id="m-enviar-btn" onclick="onEnviarEvidencia('${m.data.challengeId}')">Enviar para aprovação</button>
@@ -978,7 +1022,7 @@ boot();
 /* Expõe ao window apenas as funções chamadas pelos onclick/onchange do HTML */
 Object.assign(window, {
   setState, onField, togglePwd, onLoginClick, onCadastroClick, onAdminLoginClick, handleLogout,
-  openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso,
+  openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso, onAvatarSelecionado,
   onGerarChave, onCriarDesafio, onSalvarEdicaoDesafio, onExcluirDesafio, onRemoverUsuario,
   onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca,
   onInstallClick
