@@ -473,7 +473,7 @@ function screenApp(){
   return html;
 }
 
-let cache = {users:[], challenges:[], mySubmissions:[]};
+let cache = {users:[], challenges:[], mySubmissions:[], pesoHistorico:[]};
 async function loadAppTab(){
   if(state.appTab==='dashboard' || state.appTab==='ranking'){
     const { data:users } = await supabase.from('profiles').select('*').order('pontos',{ascending:false});
@@ -484,6 +484,10 @@ async function loadAppTab(){
     cache.challenges = chs||[];
     const { data:subs } = await supabase.from('submissions').select('*').eq('user_id',state.profile.id);
     cache.mySubmissions = subs||[];
+  }
+  if(state.appTab==='perfil'){
+    const { data:hist } = await supabase.from('weight_history').select('*').eq('user_id',state.profile.id).order('data',{ascending:false});
+    cache.pesoHistorico = hist||[];
   }
   rerenderMain();
 }
@@ -678,9 +682,13 @@ function tabRanking(){
 /* ---- PERFIL ---- */
 function tabPerfil(){
   const u = state.profile, imcInfo = classIMC(u.imc);
+  const editando = !!state.editandoPerfil;
+  const historicoHTML = cache.pesoHistorico.length
+    ? cache.pesoHistorico.map(h=>`<div style="display:flex;justify-content:space-between;padding:4px 0;"><span>${fmtDate(h.data)}</span><span class="mono">${h.peso}kg</span></div>`).join('')
+    : `<div class="empty" style="padding:8px 0;">Nenhum registro de peso ainda.</div>`;
   return `
   <div class="page-title"><h1>Perfil</h1></div>
-  <div class="page-sub">Atualize seu peso para recalcular o IMC e acompanhar sua evolução.</div>
+  <div class="page-sub">Atualize seu peso e seus dados para acompanhar sua evolução.</div>
   <div class="card" style="margin-bottom:18px;display:flex;align-items:center;gap:18px;">
     ${avatarHTML(u,'width:64px;height:64px;font-size:22px;')}
     <div>
@@ -693,20 +701,57 @@ function tabPerfil(){
     </div>
   </div>
   <div class="grid grid-2">
-    <div class="card"><h3>Dados cadastrais</h3>
-      <table>
-        <tr><td>Nome</td><td>${u.nome}</td></tr><tr><td>Usuário</td><td>@${u.username}</td></tr>
-        <tr><td>Idade</td><td>${u.idade} anos</td></tr><tr><td>Sexo</td><td style="text-transform:capitalize">${u.sexo}</td></tr>
-        <tr><td>Altura</td><td>${u.altura} cm</td></tr><tr><td>Peso atual</td><td>${u.peso} kg</td></tr>
-        <tr><td>IMC</td><td>${u.imc} — <span class="badge badge-${imcInfo.tone}">${imcInfo.label}</span></td></tr>
-      </table>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <h3 style="margin:0;">Dados cadastrais</h3>
+        ${editando?'':`<button class="btn btn-ghost btn-small" onclick="setState({editandoPerfil:true})">Editar</button>`}
+      </div>
+      ${editando ? `
+        <div class="field"><label>Nome completo</label><input id="pf-nome" value="${u.nome}" /></div>
+        <div class="row2">
+          <div class="field"><label>Idade</label><input id="pf-idade" type="number" min="10" max="100" value="${u.idade}" /></div>
+          <div class="field"><label>Sexo</label><select id="pf-sexo">
+            <option value="feminino" ${u.sexo==='feminino'?'selected':''}>Feminino</option>
+            <option value="masculino" ${u.sexo==='masculino'?'selected':''}>Masculino</option>
+            <option value="outro" ${u.sexo==='outro'?'selected':''}>Outro</option>
+          </select></div>
+        </div>
+        <div class="field"><label>Altura (cm)</label><input id="pf-altura" type="number" value="${u.altura}" /></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary btn-small" onclick="onSalvarPerfil()">Salvar</button>
+          <button class="btn btn-ghost btn-small" onclick="setState({editandoPerfil:false})">Cancelar</button>
+        </div>
+      ` : `
+        <table>
+          <tr><td>Nome</td><td>${u.nome}</td></tr><tr><td>Usuário</td><td>@${u.username}</td></tr>
+          <tr><td>Idade</td><td>${u.idade} anos</td></tr><tr><td>Sexo</td><td style="text-transform:capitalize">${u.sexo}</td></tr>
+          <tr><td>Altura</td><td>${u.altura} cm</td></tr><tr><td>Peso atual</td><td>${u.peso} kg</td></tr>
+          <tr><td>IMC</td><td>${u.imc} — <span class="badge badge-${imcInfo.tone}">${imcInfo.label}</span></td></tr>
+        </table>
+      `}
     </div>
     <div class="card"><h3>Registrar novo peso</h3>
       <div class="field"><label>Peso atual (kg)</label><input id="p-novo-peso" type="number" step="0.1" value="${u.peso}" /></div>
       <button class="btn btn-primary" onclick="onAtualizarPeso()">Atualizar e recalcular IMC</button>
-      <div id="p-historico" class="info-box">Carregando histórico…</div>
+      <div class="info-box" style="margin-top:14px;">
+        <div style="font-weight:600;margin-bottom:6px;color:var(--text);">Histórico de peso</div>
+        ${historicoHTML}
+      </div>
     </div>
   </div>`;
+}
+async function onSalvarPerfil(){
+  const nome = document.getElementById('pf-nome').value;
+  const idade = parseInt(document.getElementById('pf-idade').value,10);
+  const sexo = document.getElementById('pf-sexo').value;
+  const altura = parseFloat(document.getElementById('pf-altura').value);
+  if(!nome||!idade||!altura){ showToast('Preencha todos os campos.',false); return; }
+  const imc = calcIMC(state.profile.peso, altura);
+  const { error } = await supabase.from('profiles').update({nome,idade,sexo,altura,imc}).eq('id',state.profile.id);
+  if(error){ showToast('Erro: '+error.message,false); return; }
+  await refreshProfile();
+  setState({editandoPerfil:false});
+  showToast('Perfil atualizado.');
 }
 async function onAvatarSelecionado(ev){
   const file = ev.target.files[0]; if(!file) return;
@@ -732,6 +777,7 @@ async function onAtualizarPeso(){
   await supabase.from('profiles').update({peso:novoPeso,imc}).eq('id',u.id);
   await supabase.from('weight_history').insert({user_id:u.id,peso:novoPeso});
   await refreshProfile();
+  await loadAppTab(); // recarrega o histórico de peso exibido
   showToast('Peso atualizado com sucesso.');
 }
 
@@ -761,7 +807,7 @@ function renderModal(){
         </div>
         <img id="m-preview" class="photo-thumb" style="display:none;" />
         <div class="field" style="margin-top:12px;"><label>Comentário (opcional)</label><textarea id="m-comentario" rows="3" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:10px;"></textarea></div>
-        <button class="btn btn-primary" id="m-enviar-btn" onclick="onEnviarEvidencia('${m.data.challengeId}',${m.data.etapa||1})">Enviar para aprovação</button>
+        <button class="btn btn-primary" id="m-enviar-btn" onclick="onEnviarEvidencia('${m.data.challengeId}',${m.data.etapa||1})">Enviar evidência</button>
       </div>
     </div>`;
   }
@@ -819,7 +865,8 @@ function renderModal(){
     return `
     <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
       <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
-        <h3>Rejeitar evidência</h3>
+        <h3>Revogar evidência</h3>
+        <div class="helper" style="margin-bottom:10px;">Isso desconta os pontos já creditados por essa evidência.</div>
         <div class="field"><label>Motivo (opcional)</label><textarea id="r-motivo" rows="3" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:10px;"></textarea></div>
         <button class="btn btn-primary" onclick="onConfirmarRejeicao('${m.data.subId}')">Confirmar rejeição</button>
       </div>
@@ -863,15 +910,15 @@ async function onEnviarEvidencia(challengeId,etapa){
   if(fotoPendente){
     const path = `${state.profile.id}/${Date.now()}.jpg`;
     const { error: upErr } = await supabase.storage.from('evidencias').upload(path,fotoPendente,{contentType:'image/jpeg'});
-    if(upErr){ showToast('Erro ao enviar foto: '+upErr.message,false); if(btn){btn.disabled=false;btn.textContent='Enviar para aprovação';} return; }
+    if(upErr){ showToast('Erro ao enviar foto: '+upErr.message,false); if(btn){btn.disabled=false;btn.textContent='Enviar evidência';} return; }
     const { data: pub } = supabase.storage.from('evidencias').getPublicUrl(path);
     fotoUrl = pub.publicUrl;
   }
-  const { error: insErr } = await supabase.from('submissions').insert({user_id:state.profile.id,challenge_id:challengeId,foto_url:fotoUrl,comentario,etapa:etapa||1});
-  if(insErr){ showToast('Erro ao registrar evidência: '+insErr.message,false); if(btn){btn.disabled=false;btn.textContent='Enviar para aprovação';} return; }
+  const { error: insErr } = await supabase.from('submissions').insert({user_id:state.profile.id,challenge_id:challengeId,foto_url:fotoUrl,comentario,etapa:etapa||1,status:'aprovado'});
+  if(insErr){ showToast('Erro ao registrar evidência: '+insErr.message,false); if(btn){btn.disabled=false;btn.textContent='Enviar evidência';} return; }
   fotoPendente = null;
   setState({modal:null});
-  showToast('Evidência enviada! Aguarde aprovação do administrador.');
+  showToast('Evidência registrada e pontos creditados! ✓');
   loadAppTab();
 }
 
@@ -1029,22 +1076,22 @@ function adminSubmissoes(){
   const userById = Object.fromEntries(adminCache.users.map(u=>[u.id,u]));
   return `
   <div class="page-title"><h1>Evidências enviadas</h1></div>
-  <div class="page-sub">Aprove ou rejeite as fotos de comprovação para liberar pontos.</div>
+  <div class="page-sub">Evidências já são aprovadas automaticamente ao serem enviadas. Use esta tela só para revogar em caso de fraude ou engano.</div>
   ${subs.length? subs.map(s=>{
     const c = chById[s.challenge_id], u = userById[s.user_id];
     return `
     <div class="card" style="margin-bottom:14px;">
       <div class="challenge-top"><h4 style="margin:0;">@${u?u.username:'?'} — ${c?c.titulo:'(desafio removido)'}${c&&(c.etapas||1)>1?` (Etapa ${s.etapa||1}/${c.etapas})`:''}</h4>
-        ${s.status==='pendente'?`<span class="badge badge-warn">Pendente</span>`:s.status==='aprovado'?`<span class="badge badge-good">Aprovado</span>`:`<span class="badge badge-bad">Rejeitado</span>`}
+        ${s.status==='pendente'?`<span class="badge badge-warn">Pendente</span>`:s.status==='aprovado'?`<span class="badge badge-good">Aprovado</span>`:`<span class="badge badge-bad">Revogado</span>`}
       </div>
       <div class="helper">${fmtDate(s.data)}${c?` · vale ${c.pontos} pts`:''}</div>
       ${s.comentario?`<p style="font-size:13px;color:var(--text-dim);margin-top:8px;">"${s.comentario}"</p>`:''}
       ${s.foto_url ? `<img src="${s.foto_url}" class="photo-thumb" />` : `<div class="helper" style="margin-top:8px;">Sem foto anexada.</div>`}
-      ${s.status==='pendente'?`
       <div style="display:flex;gap:10px;margin-top:12px;">
-        <button class="btn btn-primary btn-small" onclick="onAprovarSubmissao('${s.id}')">Aprovar</button>
-        <button class="btn btn-ghost btn-small" onclick="setState({modal:{type:'rejeitar',data:{subId:'${s.id}'}}})">Rejeitar</button>
-      </div>`:''}
+        ${s.status==='aprovado'?`<button class="btn btn-ghost btn-small" onclick="setState({modal:{type:'rejeitar',data:{subId:'${s.id}'}}})">Revogar (desconta pontos)</button>`:''}
+        ${s.status==='rejeitado'?`<button class="btn btn-primary btn-small" onclick="onAprovarSubmissao('${s.id}')">Aprovar novamente</button>`:''}
+        ${s.status==='pendente'?`<button class="btn btn-primary btn-small" onclick="onAprovarSubmissao('${s.id}')">Aprovar</button><button class="btn btn-ghost btn-small" onclick="setState({modal:{type:'rejeitar',data:{subId:'${s.id}'}}})">Rejeitar</button>`:''}
+      </div>
     </div>`;
   }).join('') : `<div class="empty">Nenhuma evidência enviada ainda.</div>`}`;
 }
@@ -1083,7 +1130,7 @@ boot();
 /* Expõe ao window apenas as funções chamadas pelos onclick/onchange do HTML */
 Object.assign(window, {
   setState, onField, togglePwd, onLoginClick, onCadastroClick, onAdminLoginClick, handleLogout,
-  openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso, onAvatarSelecionado,
+  openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso, onAvatarSelecionado, onSalvarPerfil,
   onGerarChave, onCriarDesafio, onSalvarEdicaoDesafio, onExcluirDesafio, onRemoverUsuario,
   onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca,
   onInstallClick
