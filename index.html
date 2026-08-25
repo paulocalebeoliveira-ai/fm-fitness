@@ -211,12 +211,12 @@ async function boot(){
 
 function contaLiberada(profile){
   if(profile.ativo === false) return false;
-  if(profile.suspenso_ate && profile.suspenso_ate >= new Date().toISOString().slice(0,10)) return false;
+  if(profile.licenca_expira_em && profile.licenca_expira_em < new Date().toISOString().slice(0,10)) return false;
   return true;
 }
 function mensagemBloqueio(profile){
   if(profile.ativo === false) return 'Sua conta foi desativada pelo administrador.';
-  return `Sua conta está suspensa até ${fmtDate(profile.suspenso_ate)}.`;
+  return `Sua licença expirou em ${fmtDate(profile.licenca_expira_em)}. Contate o administrador para renovar.`;
 }
 
 /* ======================= AUTH ======================= */
@@ -257,9 +257,12 @@ async function handleCadastro(form){
 
   const peso = parseFloat(form.peso), altura = parseFloat(form.altura);
   const imc = calcIMC(peso,altura);
+  const isAdmin = tipo==='admin';
+  // Licença padrão de 30 dias para novos usuários (admins não expiram). O admin pode renovar depois na aba Usuários.
+  const licencaExpiraEm = isAdmin ? null : new Date(Date.now()+30*86400000).toISOString().slice(0,10);
   const profile = {
     id: signData.user.id, username, nome: form.nome, idade: parseInt(form.idade,10), sexo: form.sexo,
-    peso, peso_inicial: peso, altura, imc, pontos:0, is_admin: tipo==='admin'
+    peso, peso_inicial: peso, altura, imc, pontos:0, is_admin: isAdmin, licenca_expira_em: licencaExpiraEm
   };
   const { error: profErr } = await supabase.from('profiles').insert(profile);
   if(profErr){ setState({busy:false,authError:'Erro ao criar perfil: '+profErr.message}); return; }
@@ -408,7 +411,7 @@ async function onAdminLoginClick(){
 function sidebarHTML(active,isAdminPanel){
   const u = state.profile;
   const items = isAdminPanel ? [['01','chaves','Chaves de acesso'],['02','desafios','Desafios'],['03','usuarios','Usuários'],['04','submissoes','Evidências']]
-                             : [['01','dashboard','Painel'],['02','desafios','Desafios'],['03','ranking','Ranking'],['04','perfil','Perfil']];
+                             : [['01','dashboard','Painel'],['02','desafios','Desafios'],['03','historico','Histórico'],['04','ranking','Ranking'],['05','perfil','Perfil']];
   return `
   <div class="sidebar">
     <div class="side-brand"><span class="num">FM</span><span class="name">Fitness${isAdminPanel?' · ADM':''}</span></div>
@@ -438,7 +441,7 @@ async function loadAppTab(){
     const { data:users } = await supabase.from('profiles').select('*').order('pontos',{ascending:false});
     cache.users = users||[];
   }
-  if(state.appTab==='dashboard' || state.appTab==='desafios'){
+  if(state.appTab==='dashboard' || state.appTab==='desafios' || state.appTab==='historico'){
     const { data:chs } = await supabase.from('challenges').select('*').order('prazo',{ascending:true});
     cache.challenges = chs||[];
     const { data:subs } = await supabase.from('submissions').select('*').eq('user_id',state.profile.id);
@@ -451,6 +454,7 @@ function rerenderMain(){
   if(state.screen==='app'){
     if(state.appTab==='dashboard') el.innerHTML = tabDashboard();
     else if(state.appTab==='desafios') el.innerHTML = tabDesafios();
+    else if(state.appTab==='historico') el.innerHTML = tabHistorico();
     else if(state.appTab==='ranking') el.innerHTML = tabRanking();
     else if(state.appTab==='perfil') el.innerHTML = tabPerfil();
   } else if(state.screen==='admin'){
@@ -466,7 +470,8 @@ function tabDashboard(){
   const u = state.profile, imcInfo = classIMC(u.imc);
   const rankPos = cache.users.findIndex(x=>x.id===u.id)+1;
   const totalUsers = cache.users.length||1;
-  const proximos = cache.challenges.filter(c=>daysLeft(c.prazo)>=0).slice(0,3);
+  const hoje = new Date().toISOString().slice(0,10);
+  const hojeDesafios = cache.challenges.filter(c=>c.prazo===hoje);
   const totalPossivel = cache.challenges.reduce((s,c)=>s+c.pontos,0)||100;
   const pctDial = Math.min(100,Math.round((u.pontos/totalPossivel)*100));
   return `
@@ -478,15 +483,15 @@ function tabDashboard(){
     <div class="card"><h3>IMC atual</h3><div class="gauge-wrap"><div class="gauge-num">${u.imc??'—'}</div><div><span class="badge badge-${imcInfo.tone}">${imcInfo.label}</span><div class="gauge-label">peso atual ${u.peso}kg</div></div></div></div>
   </div>
   <div class="grid grid-2">
-    <div class="card"><h3>Próximos desafios</h3>
-      ${proximos.length? proximos.map(c=>`
+    <div class="card"><h3>Desafio de hoje</h3>
+      ${hojeDesafios.length? hojeDesafios.map(c=>`
         <div class="challenge" style="margin-bottom:8px;">
           <div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">+${c.pontos} pts</span></div>
           <p>${c.descricao||''}</p>
-          <div class="challenge-foot"><span>Prazo: ${fmtDate(c.prazo)} · ${daysLeft(c.prazo)} dia(s)</span>
+          <div class="challenge-foot"><span>Válido só hoje</span>
             <button class="btn btn-ghost btn-small" onclick="setState({appTab:'desafios'})">Ver e enviar →</button>
           </div>
-        </div>`).join('') : `<div class="empty">Nenhum desafio ativo no momento.</div>`}
+        </div>`).join('') : `<div class="empty">Nenhum desafio programado para hoje.</div>`}
     </div>
     <div class="card"><h3>Evolução de peso</h3>
       <div style="font-size:13px;color:var(--text-dim);margin-bottom:10px;">Peso inicial: <b class="mono" style="color:var(--text)">${u.peso_inicial}kg</b> → Atual: <b class="mono" style="color:var(--text)">${u.peso}kg</b></div>
@@ -497,36 +502,66 @@ function tabDashboard(){
   </div>`;
 }
 
-/* ---- DESAFIOS ---- */
+/* ---- DESAFIOS (somente o(s) desafio(s) de hoje) ---- */
 function tabDesafios(){
-  const chs = cache.challenges, minhas = cache.mySubmissions;
+  const hoje = new Date().toISOString().slice(0,10);
+  const chs = cache.challenges.filter(c=>c.prazo===hoje);
+  const minhas = cache.mySubmissions;
   function statusFor(id){ return minhas.filter(x=>x.challenge_id===id).sort((a,b)=>b.data.localeCompare(a.data))[0]; }
   return `
-  <div class="page-title"><h1>Desafios</h1></div>
-  <div class="page-sub">Cumpra o objetivo e envie a evidência em foto para pontuar.</div>
+  <div class="page-title"><h1>Desafio de hoje</h1></div>
+  <div class="page-sub">${fmtDate(hoje)} · cumpra o objetivo e envie a evidência para pontuar. Perdeu algum dia? Confira em "Histórico".</div>
   ${chs.length? chs.map(c=>{
-    const s = statusFor(c.id), expirado = daysLeft(c.prazo)<0;
+    const s = statusFor(c.id);
     let statusBadge='';
     if(s){
       if(s.status==='aprovado') statusBadge = `<span class="badge badge-good">Aprovado ✓</span>`;
       else if(s.status==='rejeitado') statusBadge = `<span class="badge badge-bad">Rejeitado</span>`;
       else statusBadge = `<span class="badge badge-warn">Em análise</span>`;
-    } else if(expirado){ statusBadge = `<span class="badge badge-bad">Expirado</span>`; }
+    }
     return `
     <div class="challenge">
       <div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">+${c.pontos} pts</span></div>
       <p>${c.descricao||''}</p>
       <div class="challenge-foot">
-        <span>Prazo: ${fmtDate(c.prazo)} ${expirado?'(encerrado)':`· ${daysLeft(c.prazo)} dia(s) restante(s)`}</span>
+        <span>Válido só hoje</span>
         <div style="display:flex;gap:8px;align-items:center;">
           ${statusBadge}
-          ${(!s||s.status==='rejeitado')&&!expirado?`<button class="btn btn-primary btn-small" onclick="openEnvioModal('${c.id}')">Enviar evidência</button>`:''}
+          ${(!s||s.status==='rejeitado')?`<button class="btn btn-primary btn-small" onclick="openEnvioModal('${c.id}')">Enviar evidência</button>`:''}
         </div>
       </div>
     </div>`;
-  }).join('') : `<div class="empty">Nenhum desafio cadastrado ainda. Fale com o administrador.</div>`}`;
+  }).join('') : `<div class="empty">Nenhum desafio programado para hoje. Volte amanhã ou confira o Histórico.</div>`}`;
 }
 function openEnvioModal(challengeId){ setState({modal:{type:'envio',data:{challengeId}}}); }
+
+/* ---- HISTÓRICO (desafios de dias passados: concluído ou perdido) ---- */
+function tabHistorico(){
+  const hoje = new Date().toISOString().slice(0,10);
+  const passados = cache.challenges.filter(c=>c.prazo<hoje).sort((a,b)=>b.prazo.localeCompare(a.prazo));
+  const minhas = cache.mySubmissions;
+  function aprovado(id){ return minhas.some(x=>x.challenge_id===id && x.status==='aprovado'); }
+  const concluidos = passados.filter(c=>aprovado(c.id)).length;
+  const perdidos = passados.length - concluidos;
+  return `
+  <div class="page-title"><h1>Histórico</h1></div>
+  <div class="page-sub">Confira se você cumpriu ou perdeu algum desafio de dias anteriores.</div>
+  <div class="grid grid-3" style="margin-bottom:18px;">
+    <div class="card"><h3>Total de dias</h3><div class="stat">${passados.length}</div></div>
+    <div class="card"><h3>Concluídos</h3><div class="stat" style="color:var(--good)">${concluidos}</div></div>
+    <div class="card"><h3>Perdidos</h3><div class="stat" style="color:var(--accent)">${perdidos}</div></div>
+  </div>
+  <div class="card">
+    ${passados.length? passados.map(c=>{
+      const ok = aprovado(c.id);
+      return `
+      <div class="challenge-foot" style="padding:10px 0;border-bottom:1px solid var(--line);">
+        <span>${fmtDate(c.prazo)} — ${c.titulo}</span>
+        ${ok? `<span class="badge badge-good">Concluído ✓</span>` : `<span class="badge badge-bad">Perdido</span>`}
+      </div>`;
+    }).join('') : `<div class="empty">Ainda não há dias passados no seu histórico.</div>`}
+  </div>`;
+}
 
 /* ---- RANKING ---- */
 function tabRanking(){
@@ -635,22 +670,24 @@ function renderModal(){
       </div>
     </div>`;
   }
-  if(m.type==='desativarUsuario'){
+  if(m.type==='renovarLicenca'){
     return `
     <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
       <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
-        <h3>Desativar usuário</h3>
+        <h3>Renovar licença</h3>
         <div class="helper" style="margin-bottom:14px;">${m.data.nome}</div>
-        <div class="field"><label>Por quanto tempo?</label>
-          <select id="des-tempo">
-            <option value="1">1 dia</option>
-            <option value="3">3 dias</option>
+        <div class="field"><label>Nova duração a partir de hoje</label>
+          <select id="lic-tempo">
             <option value="7">7 dias</option>
-            <option value="30">30 dias</option>
-            <option value="indef">Permanente (até reativar manualmente)</option>
+            <option value="30" selected>30 dias</option>
+            <option value="60">60 dias</option>
+            <option value="90">90 dias</option>
+            <option value="180">180 dias</option>
+            <option value="365">365 dias</option>
+            <option value="ilimitada">Sem limite (licença permanente)</option>
           </select>
         </div>
-        <button class="btn btn-primary" onclick="onDesativarUsuario('${m.data.userId}',document.getElementById('des-tempo').value)">Confirmar</button>
+        <button class="btn btn-primary" onclick="onRenovarLicenca('${m.data.userId}',document.getElementById('lic-tempo').value)">Confirmar</button>
       </div>
     </div>`;
   }
@@ -757,41 +794,48 @@ function adminUsuarios(){
   const hoje = new Date().toISOString().slice(0,10);
   return `
   <div class="page-title"><h1>Usuários</h1></div>
-  <div class="page-sub">Administração de contas, pontuação e permissões.</div>
+  <div class="page-sub">Administração de contas, pontuação, permissões e licença de acesso.</div>
   <div class="card"><table>
     <tr><th>Nome</th><th>Usuário</th><th>IMC</th><th>Peso</th><th>Pontos</th><th>Admin</th><th>Status</th><th></th></tr>
     ${users.length? users.map(u=>{
-      const bloqueado = u.ativo===false || (u.suspenso_ate && u.suspenso_ate>=hoje);
+      const expirada = u.licenca_expira_em && u.licenca_expira_em<hoje;
       let status;
       if(u.ativo===false) status = `<span class="badge badge-bad">Desativado</span>`;
-      else if(u.suspenso_ate && u.suspenso_ate>=hoje) status = `<span class="badge badge-warn">Suspenso até ${fmtDate(u.suspenso_ate)}</span>`;
-      else status = `<span class="badge badge-good">Ativo</span>`;
+      else if(expirada) status = `<span class="badge badge-bad">Licença expirada em ${fmtDate(u.licenca_expira_em)}</span>`;
+      else if(u.licenca_expira_em) status = `<span class="badge badge-good">Licença até ${fmtDate(u.licenca_expira_em)}</span>`;
+      else status = `<span class="badge badge-good">Ativo (sem limite)</span>`;
       return `
       <tr><td>${u.nome}</td><td class="mono">@${u.username}</td><td>${u.imc}</td><td>${u.peso}kg</td>
         <td class="mono">${u.pontos}</td><td>${u.is_admin?'<span class="badge badge-good">Sim</span>':'—'}</td>
         <td>${status}</td>
         <td style="display:flex;gap:6px;flex-wrap:wrap;">
-          ${bloqueado
+          ${u.ativo===false
             ? `<button class="btn btn-ghost btn-small" onclick="onReativarUsuario('${u.id}')">Reativar</button>`
-            : `<button class="btn btn-ghost btn-small" onclick="setState({modal:{type:'desativarUsuario',data:{userId:'${u.id}',nome:'${u.nome.replace(/'/g,"\\'")}'}}})">Desativar</button>`}
+            : `<button class="btn btn-ghost btn-small" onclick="onDesativarUsuario('${u.id}')">Desativar</button>`}
+          <button class="btn btn-ghost btn-small" onclick="setState({modal:{type:'renovarLicenca',data:{userId:'${u.id}',nome:'${u.nome.replace(/'/g,"\\'")}'}}})">Renovar licença</button>
           <button class="btn btn-ghost btn-small" onclick="onRemoverUsuario('${u.id}')">Remover</button>
         </td></tr>`;
     }).join('') : `<tr><td colspan="8" class="empty">Nenhum usuário cadastrado.</td></tr>`}
   </table></div>
-  <div class="info-box">"Desativar" bloqueia o login imediatamente (permanente ou por um período escolhido). "Remover" apaga o perfil do app; a conta de login original só pode ser totalmente apagada no painel do Supabase (Authentication → Users).</div>`;
+  <div class="info-box">"Desativar/Reativar" bloqueia ou libera o login na hora. "Renovar licença" define até quando o acesso vale — use quando a licença expirar (ou antes, para estender). "Remover" apaga o perfil do app; a conta de login original só pode ser totalmente apagada no painel do Supabase (Authentication → Users).</div>`;
 }
-async function onDesativarUsuario(userId,dias){
-  const patch = dias==='indef' ? {ativo:false,suspenso_ate:null} : {ativo:true,suspenso_ate:new Date(Date.now()+parseInt(dias,10)*86400000).toISOString().slice(0,10)};
-  const { error } = await supabase.from('profiles').update(patch).eq('id',userId);
+async function onDesativarUsuario(userId){
+  const { error } = await supabase.from('profiles').update({ativo:false}).eq('id',userId);
   if(error){ showToast('Erro: '+error.message,false); return; }
-  setState({modal:null});
-  showToast(dias==='indef' ? 'Usuário desativado.' : 'Usuário suspenso pelo período escolhido.');
-  loadAdminData();
+  showToast('Usuário desativado.'); loadAdminData();
 }
 async function onReativarUsuario(userId){
-  const { error } = await supabase.from('profiles').update({ativo:true,suspenso_ate:null}).eq('id',userId);
+  const { error } = await supabase.from('profiles').update({ativo:true}).eq('id',userId);
   if(error){ showToast('Erro: '+error.message,false); return; }
   showToast('Usuário reativado.'); loadAdminData();
+}
+async function onRenovarLicenca(userId,dias){
+  const licencaExpiraEm = dias==='ilimitada' ? null : new Date(Date.now()+parseInt(dias,10)*86400000).toISOString().slice(0,10);
+  const { error } = await supabase.from('profiles').update({licenca_expira_em:licencaExpiraEm,ativo:true}).eq('id',userId);
+  if(error){ showToast('Erro: '+error.message,false); return; }
+  setState({modal:null});
+  showToast('Licença renovada.');
+  loadAdminData();
 }
 async function onRemoverUsuario(id){
   if(id===state.profile.id){ showToast('Você não pode remover sua própria conta.',false); return; }
@@ -846,7 +890,7 @@ Object.assign(window, {
   setState, onField, togglePwd, onLoginClick, onCadastroClick, onAdminLoginClick, handleLogout,
   openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso,
   onGerarChave, onCriarDesafio, onExcluirDesafio, onRemoverUsuario,
-  onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario
+  onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca
 });
 
 })();
