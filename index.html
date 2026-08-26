@@ -124,6 +124,13 @@
   .chat-attach-preview{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:6px 10px;background:var(--bg-panel-2);border:1px solid var(--line);border-radius:8px;font-size:12px;color:var(--text-dim);}
   .chat-attach-preview img{width:36px;height:36px;object-fit:cover;border-radius:6px;}
   .chat-del{background:none;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;margin-top:4px;padding:0;}
+  .feed-comments{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);}
+  .feed-comment{display:flex;gap:8px;margin-bottom:10px;}
+  .feed-comment .bubble{background:var(--bg-panel-2);border:1px solid var(--line);border-radius:10px;padding:7px 10px;flex:1;}
+  .feed-comment .meta{font-size:11px;color:var(--text-dim);display:flex;gap:6px;margin-bottom:2px;}
+  .feed-comment .txt{font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word;}
+  .feed-comment-input{display:flex;gap:8px;margin-top:6px;}
+  .feed-comment-input input{flex:1;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;}
   .empty{color:var(--text-dim);font-size:13px;padding:20px 0;text-align:center;}
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:8px;font-size:13px;z-index:99;}
   .toast-ok{background:var(--good-dim);color:var(--good);border:1px solid var(--good);}
@@ -532,7 +539,7 @@ function screenApp(){
   return html;
 }
 
-let cache = {users:[], challenges:[], mySubmissions:[], pesoHistorico:[], chatMessages:[], feedSubmissions:[], feedReactions:{}};
+let cache = {users:[], challenges:[], mySubmissions:[], pesoHistorico:[], chatMessages:[], feedSubmissions:[], feedReactions:{}, feedComments:{}};
 async function loadAppTab(){
   if(state.appTab==='dashboard' || state.appTab==='ranking' || state.appTab==='chat' || state.appTab==='feed'){
     const { data:users } = await supabase.from('profiles').select('*').order('pontos',{ascending:false});
@@ -560,6 +567,7 @@ async function loadAppTab(){
     const { data:subs } = await supabase.from('submissions').select('*').order('criado_em',{ascending:false}).limit(100);
     cache.feedSubmissions = subs||[];
     await carregarReacoesFeed(cache.feedSubmissions.map(s=>s.id));
+    await carregarComentariosFeed(cache.feedSubmissions.map(s=>s.id));
     iniciarRealtimeFeed();
   }
   rerenderMain();
@@ -777,6 +785,7 @@ function feedCardHTML(s,chById,userById){
   reacoes.forEach(r=>{ contagem[r.emoji]=(contagem[r.emoji]||0)+1; if(r.user_id===state.profile.id) meusEmojis.add(r.emoji); });
   const quando = new Date(s.criado_em||s.data).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
   const statusBadge = s.status==='aprovado' ? `<span class="badge badge-good">Concluído ✓</span>` : s.status==='rejeitado' ? `<span class="badge badge-bad">Revogado</span>` : `<span class="badge badge-warn">Pendente</span>`;
+  const comentarios = cache.feedComments[s.id] || [];
   return `
   <div class="card" style="margin-bottom:16px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
@@ -794,7 +803,52 @@ function feedCardHTML(s,chById,userById){
         <button class="btn ${meusEmojis.has(e)?'btn-primary':'btn-ghost'} btn-small" style="width:auto;padding:5px 11px;" onclick="onReagirEvidencia('${s.id}','${e}')">${e}${contagem[e]?' '+contagem[e]:''}</button>
       `).join('')}
     </div>
+    <div class="feed-comments">
+      ${comentarios.map(cm=>{
+        const cu = userById[cm.user_id];
+        const hora = new Date(cm.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+        const podeExcluir = cm.user_id===state.profile.id || state.profile.is_admin;
+        return `
+        <div class="feed-comment">
+          ${avatarHTML(cu,'width:24px;height:24px;font-size:10px;flex-shrink:0;')}
+          <div class="bubble">
+            <div class="meta"><b>${cu?cu.nome:'—'}</b><span>${hora}</span></div>
+            <div class="txt">${destacarMencoes(cm.texto)}</div>
+            ${podeExcluir?`<button class="chat-del" onclick="onExcluirComentarioFeed('${cm.id}','${s.id}')">Excluir</button>`:''}
+          </div>
+        </div>`;
+      }).join('')}
+      <div class="feed-comment-input">
+        <input type="text" id="fc-input-${s.id}" placeholder="Escreva um comentário..." onkeydown="if(event.key==='Enter'){onEnviarComentarioFeed('${s.id}');}" />
+        <button class="btn btn-ghost btn-small" style="width:auto;" onclick="onEnviarComentarioFeed('${s.id}')">Enviar</button>
+      </div>
+    </div>
   </div>`;
+}
+async function carregarComentariosFeed(subIds){
+  cache.feedComments = {};
+  if(!subIds.length) return;
+  const { data } = await supabase.from('submission_comments').select('*').in('submission_id',subIds).order('criado_em',{ascending:true});
+  (data||[]).forEach(cm=>{
+    if(!cache.feedComments[cm.submission_id]) cache.feedComments[cm.submission_id]=[];
+    cache.feedComments[cm.submission_id].push(cm);
+  });
+}
+async function onEnviarComentarioFeed(subId){
+  const el = document.getElementById('fc-input-'+subId);
+  const texto = el ? el.value.trim() : '';
+  if(!texto) return;
+  const { error } = await supabase.from('submission_comments').insert({submission_id:subId,user_id:state.profile.id,texto});
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
+  if(el) el.value='';
+  await carregarComentariosFeed(cache.feedSubmissions.map(s=>s.id));
+  if(state.appTab==='feed') rerenderMain();
+}
+async function onExcluirComentarioFeed(commentId,subId){
+  const { error } = await supabase.from('submission_comments').delete().eq('id',commentId);
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
+  await carregarComentariosFeed(cache.feedSubmissions.map(s=>s.id));
+  if(state.appTab==='feed') rerenderMain();
 }
 async function carregarReacoesFeed(subIds){
   cache.feedReactions = {};
@@ -829,6 +883,14 @@ function iniciarRealtimeFeed(){
     .on('postgres_changes', {event:'*', schema:'public', table:'submission_reactions'}, async ()=>{
       await carregarReacoesFeed(cache.feedSubmissions.map(s=>s.id));
       if(state.appTab==='feed') rerenderMain();
+    })
+    .on('postgres_changes', {event:'*', schema:'public', table:'submission_comments'}, async (payload)=>{
+      await carregarComentariosFeed(cache.feedSubmissions.map(s=>s.id));
+      if(state.appTab==='feed') rerenderMain();
+      const novoComentario = payload.eventType==='INSERT' ? payload.new : null;
+      if(novoComentario && novoComentario.user_id!==state.profile.id && state.appTab!=='feed'){
+        showToast('💬 Novo comentário em uma evidência do feed');
+      }
     })
     .subscribe();
 }
@@ -1601,7 +1663,7 @@ Object.assign(window, {
   onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca, onRedefinirSenha,
   onChatFotoSelecionada, onEnviarMensagemChat, onExcluirMensagem, onRemoverFotoChat, onAtivarLembretes,
   onChatTextoInput, onSelecionarMencaoInline, onFecharSugestoesMencao, onAbrirEmojis, onInserirEmoji,
-  onExcluirSubmissao, onReagirEvidencia,
+  onExcluirSubmissao, onReagirEvidencia, onEnviarComentarioFeed, onExcluirComentarioFeed,
   onInstallClick
 });
 
