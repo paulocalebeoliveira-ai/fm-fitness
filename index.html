@@ -102,6 +102,21 @@
   .close-x{position:absolute;top:16px;right:18px;background:none;border:none;color:var(--text-dim);font-size:18px;}
   .keycode{font-family:'IBM Plex Mono';background:var(--bg);border:1px dashed var(--line);padding:8px 12px;border-radius:6px;display:inline-block;letter-spacing:0.05em;}
   .photo-thumb{width:100%;max-height:220px;object-fit:cover;border-radius:6px;margin-top:10px;border:1px solid var(--line);}
+  .chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 160px);}
+  .chat-messages{flex:1;overflow-y:auto;padding:6px 2px;display:flex;flex-direction:column;gap:14px;}
+  .chat-msg{display:flex;gap:10px;max-width:78%;}
+  .chat-msg.me{align-self:flex-end;flex-direction:row-reverse;}
+  .chat-bubble{background:var(--bg-panel-2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;}
+  .chat-msg.me .chat-bubble{background:var(--accent-dim);border-color:var(--accent);}
+  .chat-meta{font-size:11px;color:var(--text-dim);margin-bottom:3px;display:flex;gap:6px;}
+  .chat-msg.me .chat-meta{flex-direction:row-reverse;}
+  .chat-text{font-size:14px;line-height:1.4;white-space:pre-wrap;word-break:break-word;}
+  .chat-photo{max-width:240px;border-radius:8px;margin-top:6px;display:block;}
+  .chat-input-row{display:flex;gap:8px;align-items:flex-end;padding-top:12px;border-top:1px solid var(--line);}
+  .chat-input-row textarea{flex:1;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:10px 12px;font-size:14px;resize:none;font-family:inherit;}
+  .chat-attach-preview{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:6px 10px;background:var(--bg-panel-2);border:1px solid var(--line);border-radius:8px;font-size:12px;color:var(--text-dim);}
+  .chat-attach-preview img{width:36px;height:36px;object-fit:cover;border-radius:6px;}
+  .chat-del{background:none;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;margin-top:4px;padding:0;}
   .empty{color:var(--text-dim);font-size:13px;padding:20px 0;text-align:center;}
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:8px;font-size:13px;z-index:99;}
   .toast-ok{background:var(--good-dim);color:var(--good);border:1px solid var(--good);}
@@ -180,6 +195,28 @@ function classIMC(imc){
 function daysLeft(dateStr){ const d=new Date(dateStr+'T23:59:59'); return Math.ceil((d-new Date())/86400000); }
 function fmtDate(dateStr){ if(!dateStr) return '—'; return new Date(dateStr+'T12:00:00').toLocaleDateString('pt-BR'); }
 function fmtDateTime(ts){ if(!ts) return '—'; return new Date(ts).toLocaleDateString('pt-BR'); }
+
+// Traduz mensagens de erro comuns do Supabase/Postgres para português.
+function traduzirErro(msg){
+  if(!msg) return 'Ocorreu um erro inesperado. Tente novamente.';
+  const m = msg.toLowerCase();
+  const mapa = [
+    [/invalid login credentials/, 'Usuário ou senha inválidos.'],
+    [/user already registered|already registered|already exists/, 'Esse usuário já existe.'],
+    [/password should be at least/, 'A senha deve ter pelo menos 6 caracteres.'],
+    [/email rate limit exceeded|too many requests/, 'Muitas tentativas seguidas. Aguarde um pouco e tente novamente.'],
+    [/jwt expired|invalid jwt|session.*expired/, 'Sua sessão expirou. Faça login novamente.'],
+    [/row-level security|permission denied|not authorized|não pode ser modificado/, 'Você não tem permissão para fazer isso.'],
+    [/duplicate key value violates unique constraint/, 'Já existe um registro com esse valor.'],
+    [/violates foreign key constraint/, 'Não é possível concluir: há dados vinculados a este registro.'],
+    [/violates not-null constraint/, 'Preencha todos os campos obrigatórios.'],
+    [/failed to fetch|networkerror|network request failed/, 'Não foi possível conectar ao servidor. Verifique sua internet e tente novamente.'],
+    [/user not found|não encontrado/, 'Usuário não encontrado.'],
+    [/invalid email/, 'Usuário inválido.'],
+  ];
+  for(const [re,pt] of mapa){ if(re.test(m)) return pt; }
+  return msg; // sem tradução mapeada: mostra a mensagem original do servidor
+}
 function initials(nome){ return (nome||'?').split(' ').filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join(''); }
 function avatarHTML(user,extraStyle){
   if(user && user.avatar_url) return `<div class="avatar" style="${extraStyle||''}padding:0;overflow:hidden;"><img src="${user.avatar_url}" style="width:100%;height:100%;object-fit:cover;" /></div>`;
@@ -234,6 +271,7 @@ async function boot(){
   if(session){
     const { data:profile } = await supabase.from('profiles').select('*').eq('id',session.user.id).single();
     if(profile && contaLiberada(profile)){ setState({session,profile,screen:'app',appTab:'dashboard'}); return; }
+  configurarLembretes();
     if(profile && !contaLiberada(profile)){ await supabase.auth.signOut(); setState({screen:'login',authError:mensagemBloqueio(profile)}); return; }
   }
   setState({screen:'login'});
@@ -261,6 +299,7 @@ async function handleLogin(username,senha,lembrar){
   if(!contaLiberada(profile)){ await supabase.auth.signOut(); setState({busy:false,authError:mensagemBloqueio(profile)}); return; }
   if(HAS_LOCAL_STORAGE) localStorage.setItem('fmfit_last_user',username.trim().toLowerCase());
   setState({busy:false,session:data.session,profile,screen:'app',appTab:'dashboard'});
+  configurarLembretes();
 }
 
 async function handleCadastro(form){
@@ -271,7 +310,7 @@ async function handleCadastro(form){
 
   const { data: signData, error: signErr } = await supabase.auth.signUp({email,password:form.senha});
   if(signErr){
-    const msg = /already registered|already exists/i.test(signErr.message) ? 'Esse nome de usuário já existe.' : signErr.message;
+    const msg = traduzirErro(signErr.message);
     setState({busy:false,authError:msg}); return;
   }
   if(!signData.session){
@@ -281,7 +320,7 @@ async function handleCadastro(form){
 
   const { data:tipo, error:keyErr } = await supabase.rpc('redeem_access_key',{key_code:form.chave.trim()});
   if(keyErr){
-    setState({busy:false,authError:keyErr.message || 'Chave de acesso inválida.'});
+    setState({busy:false,authError:keyErr.message ? traduzirErro(keyErr.message) : 'Chave de acesso inválida.'});
     return;
   }
 
@@ -295,11 +334,12 @@ async function handleCadastro(form){
     peso, peso_inicial: peso, altura, imc, pontos:0, is_admin: isAdmin, licenca_expira_em: licencaExpiraEm
   };
   const { error: profErr } = await supabase.from('profiles').insert(profile);
-  if(profErr){ setState({busy:false,authError:'Erro ao criar perfil: '+profErr.message}); return; }
+  if(profErr){ setState({busy:false,authError:'Erro ao criar perfil: '+traduzirErro(profErr.message)}); return; }
   await supabase.from('weight_history').insert({user_id:signData.user.id,peso});
   if(HAS_LOCAL_STORAGE) localStorage.setItem('fmfit_last_user',username);
 
   setState({busy:false,session:signData.session,profile,screen:'app',appTab:'dashboard'});
+  configurarLembretes();
 }
 
 async function handleLogout(){
@@ -441,7 +481,7 @@ async function onAdminLoginClick(){
 function sidebarHTML(active,isAdminPanel){
   const u = state.profile;
   const items = isAdminPanel ? [['01','chaves','Chaves de acesso'],['02','desafios','Desafios'],['03','usuarios','Usuários'],['04','submissoes','Evidências']]
-                             : [['01','dashboard','Painel'],['02','desafios','Desafios'],['03','historico','Histórico'],['04','ranking','Ranking'],['05','perfil','Perfil']];
+                             : [['01','dashboard','Painel'],['02','desafios','Desafios'],['03','historico','Histórico'],['04','ranking','Ranking'],['05','chat','Chat'],['06','perfil','Perfil']];
   const goto = isAdminPanel ? (key)=>`setState({adminTab:'${key}',sidebarOpen:false})` : (key)=>`setState({appTab:'${key}',sidebarOpen:false})`;
   return `
   <div class="mobile-topbar">
@@ -462,6 +502,7 @@ function sidebarHTML(active,isAdminPanel){
       <div class="user-chip">${avatarHTML(u)}<div class="who">${u?.nome}<div class="u">@${u?.username}</div></div></div>
       ${state.canInstall?`<button class="nav-item" onclick="onInstallClick()"><span class="bib">📲</span>Instalar app</button>`:''}
       ${isIOS() && !isStandalone()?`<button class="nav-item" onclick="setState({modal:{type:'instalarIOS'}})"><span class="bib">📲</span>Instalar app</button>`:''}
+      ${('Notification' in window) && Notification.permission==='default'?`<button class="nav-item" onclick="onAtivarLembretes()"><span class="bib">🔔</span>Ativar lembretes</button>`:''}
       <button class="nav-item" onclick="handleLogout()"><span class="bib">×</span>Sair</button>
     </div>
   </div>`;
@@ -474,9 +515,9 @@ function screenApp(){
   return html;
 }
 
-let cache = {users:[], challenges:[], mySubmissions:[], pesoHistorico:[]};
+let cache = {users:[], challenges:[], mySubmissions:[], pesoHistorico:[], chatMessages:[]};
 async function loadAppTab(){
-  if(state.appTab==='dashboard' || state.appTab==='ranking'){
+  if(state.appTab==='dashboard' || state.appTab==='ranking' || state.appTab==='chat'){
     const { data:users } = await supabase.from('profiles').select('*').order('pontos',{ascending:false});
     cache.users = users||[];
   }
@@ -490,7 +531,13 @@ async function loadAppTab(){
     const { data:hist } = await supabase.from('weight_history').select('*').eq('user_id',state.profile.id).order('data',{ascending:false});
     cache.pesoHistorico = hist||[];
   }
+  if(state.appTab==='chat'){
+    const { data:msgs } = await supabase.from('chat_messages').select('*').order('criado_em',{ascending:true}).limit(200);
+    cache.chatMessages = msgs||[];
+    iniciarRealtimeChat();
+  }
   rerenderMain();
+  if(state.appTab==='chat') scrollChatParaFinal();
 }
 function rerenderMain(){
   const el = document.querySelector('.main'); if(!el) return;
@@ -499,6 +546,7 @@ function rerenderMain(){
     else if(state.appTab==='desafios') el.innerHTML = tabDesafios();
     else if(state.appTab==='historico') el.innerHTML = tabHistorico();
     else if(state.appTab==='ranking') el.innerHTML = tabRanking();
+    else if(state.appTab==='chat') el.innerHTML = tabChat();
     else if(state.appTab==='perfil') el.innerHTML = tabPerfil();
   } else if(state.screen==='admin'){
     if(state.adminTab==='chaves') el.innerHTML = adminChaves();
@@ -673,7 +721,7 @@ function tabRanking(){
       <div class="rank-row ${u.id===me?'me':''}">
         <div class="bib-num">${String(i+1).padStart(2,'0')}</div>
         ${avatarHTML(u,'width:30px;height:30px;font-size:12px;')}
-        <div class="rank-name"><div class="n">${u.nome}${u.id===me?' (você)':''}</div><div class="m">IMC ${u.imc??'—'} · ${classIMC(u.imc).label}</div></div>
+        <div class="rank-name"><div class="n">${u.nome}${u.id===me?' (você)':''}</div></div>
         ${evo}<div class="rank-pts">${u.pontos} pts</div>
       </div>`;
     }).join('') : `<div class="empty">Ainda não há participantes cadastrados.</div>`}
@@ -757,7 +805,7 @@ async function onSalvarPerfil(){
   if(!nome||!idade||!altura){ showToast('Preencha todos os campos.',false); return; }
   const imc = calcIMC(state.profile.peso, altura);
   const { error } = await supabase.from('profiles').update({nome,idade,sexo,altura,imc}).eq('id',state.profile.id);
-  if(error){ showToast('Erro: '+error.message,false); return; }
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   await refreshProfile();
   setState({editandoPerfil:false});
   showToast('Perfil atualizado.');
@@ -769,11 +817,11 @@ async function onAvatarSelecionado(ev){
     const blob = await compressImageToBlob(file, 320, 0.7);
     const path = `${state.profile.id}/avatar.jpg`;
     const { error: upErr } = await supabase.storage.from('avatars').upload(path, blob, {contentType:'image/jpeg', upsert:true});
-    if(upErr){ showToast('Erro ao enviar foto: '+upErr.message,false); return; }
+    if(upErr){ showToast('Erro ao enviar foto: '+traduzirErro(upErr.message),false); return; }
     const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
     const avatarUrl = pub.publicUrl + '?t=' + Date.now(); // evita cache antigo do navegador
     const { error: updErr } = await supabase.from('profiles').update({avatar_url:avatarUrl}).eq('id',state.profile.id);
-    if(updErr){ showToast('Erro ao salvar foto: '+updErr.message,false); return; }
+    if(updErr){ showToast('Erro ao salvar foto: '+traduzirErro(updErr.message),false); return; }
     await refreshProfile();
     showToast('Foto de perfil atualizada.');
   }catch(e){ showToast('Não foi possível processar a imagem.',false); }
@@ -795,10 +843,106 @@ async function onAlterarSenha(){
   if(!nova || nova.length<6){ showToast('A senha deve ter ao menos 6 caracteres.',false); return; }
   if(nova!==confirma){ showToast('As senhas não coincidem.',false); return; }
   const { error } = await supabase.auth.updateUser({password:nova});
-  if(error){ showToast('Erro: '+error.message,false); return; }
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   document.getElementById('pf-nova-senha').value='';
   document.getElementById('pf-confirma-senha').value='';
   showToast('Senha alterada com sucesso.');
+}
+
+/* ======================= CHAT EM GRUPO ======================= */
+let chatFotoPendente = null;
+let realtimeChatAtivo = false;
+
+function tabChat(){
+  const userById = Object.fromEntries(cache.users.map(u=>[u.id,u]));
+  const me = state.profile.id;
+  const msgsHTML = cache.chatMessages.map(m=>{
+    const u = userById[m.user_id];
+    const nome = u ? u.nome : '—';
+    const isMe = m.user_id===me;
+    const hora = new Date(m.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    return `
+    <div class="chat-msg ${isMe?'me':''}">
+      ${avatarHTML(u,'width:32px;height:32px;font-size:12px;flex-shrink:0;')}
+      <div>
+        <div class="chat-meta"><b>${isMe?'Você':nome}</b><span>${hora}</span></div>
+        <div class="chat-bubble">
+          ${m.foto_url?`<img src="${m.foto_url}" class="chat-photo" />`:''}
+          ${m.texto?`<div class="chat-text">${escapeHTML(m.texto)}</div>`:''}
+        </div>
+        ${(isMe||state.profile.is_admin)?`<button class="chat-del" onclick="onExcluirMensagem('${m.id}')">Excluir</button>`:''}
+      </div>
+    </div>`;
+  }).join('');
+  return `
+  <div class="page-title"><h1>Chat do grupo</h1></div>
+  <div class="page-sub">Converse com os outros participantes — texto, foto ou foto com legenda.</div>
+  <div class="chat-wrap">
+    <div class="chat-messages" id="chat-scroll">${msgsHTML || '<div class="empty">Nenhuma mensagem ainda. Diga oi! 👋</div>'}</div>
+    <div id="chat-preview-area"></div>
+    <div class="chat-input-row">
+      <label class="btn btn-ghost btn-small" style="width:auto;cursor:pointer;">📷<input type="file" id="chat-foto" accept="image/*" onchange="onChatFotoSelecionada(event)" style="display:none;" /></label>
+      <textarea id="chat-texto" rows="1" placeholder="Escreva uma mensagem..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();onEnviarMensagemChat();}"></textarea>
+      <button class="btn btn-primary btn-small" onclick="onEnviarMensagemChat()">Enviar</button>
+    </div>
+  </div>`;
+}
+function escapeHTML(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function scrollChatParaFinal(){
+  const el = document.getElementById('chat-scroll');
+  if(el) el.scrollTop = el.scrollHeight;
+}
+async function onChatFotoSelecionada(ev){
+  const file = ev.target.files[0]; if(!file) return;
+  chatFotoPendente = await compressImageToBlob(file, 480, 0.6);
+  const area = document.getElementById('chat-preview-area');
+  if(area){
+    area.innerHTML = `<div class="chat-attach-preview"><img src="${URL.createObjectURL(chatFotoPendente)}" /> Foto anexada — escreva uma legenda (opcional) e envie. <button class="link-btn" onclick="onRemoverFotoChat()">remover</button></div>`;
+  }
+}
+function onRemoverFotoChat(){
+  chatFotoPendente = null;
+  const area = document.getElementById('chat-preview-area');
+  if(area) area.innerHTML='';
+}
+async function onEnviarMensagemChat(){
+  const textoEl = document.getElementById('chat-texto');
+  const texto = textoEl ? textoEl.value.trim() : '';
+  if(!texto && !chatFotoPendente) return;
+  let fotoUrl = null;
+  if(chatFotoPendente){
+    const path = `${state.profile.id}/${Date.now()}.jpg`;
+    const { error: upErr } = await supabase.storage.from('chat').upload(path, chatFotoPendente, {contentType:'image/jpeg'});
+    if(upErr){ showToast('Erro ao enviar foto: '+traduzirErro(upErr.message),false); return; }
+    const { data: pub } = supabase.storage.from('chat').getPublicUrl(path);
+    fotoUrl = pub.publicUrl;
+  }
+  const { error } = await supabase.from('chat_messages').insert({user_id:state.profile.id, texto: texto||null, foto_url: fotoUrl});
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
+  chatFotoPendente = null;
+  if(textoEl) textoEl.value='';
+  const area = document.getElementById('chat-preview-area'); if(area) area.innerHTML='';
+  // a mensagem própria também chega pelo realtime; recarrega para garantir consistência
+  await loadAppTab();
+}
+async function onExcluirMensagem(id){
+  const { error } = await supabase.from('chat_messages').delete().eq('id',id);
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
+  cache.chatMessages = cache.chatMessages.filter(m=>m.id!==id);
+  if(state.appTab==='chat') rerenderMain();
+}
+function iniciarRealtimeChat(){
+  if(realtimeChatAtivo) return;
+  realtimeChatAtivo = true;
+  supabase.channel('chat_messages_realtime')
+    .on('postgres_changes', {event:'INSERT', schema:'public', table:'chat_messages'}, (payload)=>{
+      if(!cache.chatMessages.some(m=>m.id===payload.new.id)){
+        cache.chatMessages.push(payload.new);
+        if(state.appTab==='chat'){ rerenderMain(); scrollChatParaFinal(); }
+        else if(payload.new.user_id!==state.profile.id){ showToast('Nova mensagem no chat 💬'); }
+      }
+    })
+    .subscribe();
 }
 
 /* ======================= MODAL: ENVIO DE EVIDÊNCIA ======================= */
@@ -957,12 +1101,12 @@ async function onEnviarEvidencia(challengeId,etapa){
   if(fotoPendente){
     const path = `${state.profile.id}/${Date.now()}.jpg`;
     const { error: upErr } = await supabase.storage.from('evidencias').upload(path,fotoPendente,{contentType:'image/jpeg'});
-    if(upErr){ showToast('Erro ao enviar foto: '+upErr.message,false); if(btn){btn.disabled=false;btn.textContent='Enviar evidência';} return; }
+    if(upErr){ showToast('Erro ao enviar foto: '+traduzirErro(upErr.message),false); if(btn){btn.disabled=false;btn.textContent='Enviar evidência';} return; }
     const { data: pub } = supabase.storage.from('evidencias').getPublicUrl(path);
     fotoUrl = pub.publicUrl;
   }
   const { error: insErr } = await supabase.from('submissions').insert({user_id:state.profile.id,challenge_id:challengeId,foto_url:fotoUrl,comentario,etapa:etapa||1,status:'aprovado'});
-  if(insErr){ showToast('Erro ao registrar evidência: '+insErr.message,false); if(btn){btn.disabled=false;btn.textContent='Enviar evidência';} return; }
+  if(insErr){ showToast('Erro ao registrar evidência: '+traduzirErro(insErr.message),false); if(btn){btn.disabled=false;btn.textContent='Enviar evidência';} return; }
   fotoPendente = null;
   setState({modal:null});
   showToast('Evidência registrada e pontos creditados! ✓');
@@ -1007,7 +1151,7 @@ async function onGerarChave(){
   const tipo = document.getElementById('k-tipo').value;
   const dias = parseInt(document.getElementById('k-dias').value,10)||7;
   const { data, error } = await supabase.rpc('generate_access_key',{tipo,dias});
-  if(error){ showToast('Erro: '+error.message,false); return; }
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   setState({modal:null});
   showToast('Chave gerada: '+data);
   loadAdminData();
@@ -1042,7 +1186,7 @@ async function onCriarDesafio(){
   if(!titulo||!prazo||!dataInicio){ showToast('Preencha título, início e prazo.',false); return; }
   if(dataInicio>prazo){ showToast('A data de início não pode ser depois do prazo final.',false); return; }
   const { error } = await supabase.from('challenges').insert({titulo,descricao,pontos,etapas,data_inicio:dataInicio,prazo,criado_por:state.profile.id});
-  if(error){ showToast('Erro: '+error.message,false); return; }
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   setState({modal:null}); showToast('Desafio criado.'); loadAdminData();
 }
 async function onSalvarEdicaoDesafio(id){
@@ -1053,12 +1197,12 @@ async function onSalvarEdicaoDesafio(id){
   if(!titulo||!prazo||!dataInicio){ showToast('Preencha título, início e prazo.',false); return; }
   if(dataInicio>prazo){ showToast('A data de início não pode ser depois do prazo final.',false); return; }
   const { error } = await supabase.from('challenges').update({titulo,descricao,pontos,etapas,data_inicio:dataInicio,prazo}).eq('id',id);
-  if(error){ showToast('Erro: '+error.message,false); return; }
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   setState({modal:null}); showToast('Desafio atualizado — o período de exibição foi ajustado.'); loadAdminData();
 }
 async function onExcluirDesafio(id){
   const { error } = await supabase.from('challenges').delete().eq('id',id);
-  if(error){ showToast('Erro: '+error.message,false); return; }
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   showToast('Desafio removido.'); loadAdminData();
 }
 
@@ -1095,18 +1239,18 @@ function adminUsuarios(){
 }
 async function onDesativarUsuario(userId){
   const { error } = await supabase.from('profiles').update({ativo:false}).eq('id',userId);
-  if(error){ showToast('Erro: '+error.message,false); return; }
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   showToast('Usuário desativado.'); loadAdminData();
 }
 async function onReativarUsuario(userId){
   const { error } = await supabase.from('profiles').update({ativo:true}).eq('id',userId);
-  if(error){ showToast('Erro: '+error.message,false); return; }
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   showToast('Usuário reativado.'); loadAdminData();
 }
 async function onRenovarLicenca(userId,dias){
   const licencaExpiraEm = dias==='ilimitada' ? null : new Date(Date.now()+parseInt(dias,10)*86400000).toISOString().slice(0,10);
   const { error } = await supabase.from('profiles').update({licenca_expira_em:licencaExpiraEm,ativo:true}).eq('id',userId);
-  if(error){ showToast('Erro: '+error.message,false); return; }
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   setState({modal:null});
   showToast('Licença renovada.');
   loadAdminData();
@@ -1115,14 +1259,14 @@ async function onRedefinirSenha(username){
   const novaSenha = document.getElementById('rs-senha').value;
   if(!novaSenha || novaSenha.length<6){ showToast('A senha deve ter ao menos 6 caracteres.',false); return; }
   const { error } = await supabase.rpc('admin_reset_password',{target_username:username,new_password:novaSenha});
-  if(error){ showToast('Erro: '+error.message,false); return; }
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   setState({modal:null});
   showToast('Senha redefinida com sucesso.');
 }
 async function onRemoverUsuario(id){
   if(id===state.profile.id){ showToast('Você não pode remover sua própria conta.',false); return; }
   const { error } = await supabase.from('profiles').delete().eq('id',id);
-  if(error){ showToast('Erro: '+error.message,false); return; }
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   showToast('Usuário removido.'); loadAdminData();
 }
 
@@ -1153,14 +1297,61 @@ function adminSubmissoes(){
 }
 async function onAprovarSubmissao(subId){
   const { error } = await supabase.rpc('approve_submission',{sub_id:subId});
-  if(error){ showToast('Erro: '+error.message,false); return; }
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   showToast('Evidência aprovada e pontos creditados.'); loadAdminData();
 }
 async function onConfirmarRejeicao(subId){
   const motivo = document.getElementById('r-motivo').value;
   const { error } = await supabase.rpc('reject_submission',{sub_id:subId,motivo});
-  if(error){ showToast('Erro: '+error.message,false); return; }
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   setState({modal:null}); showToast('Evidência rejeitada.'); loadAdminData();
+}
+
+/* ======================= LEMBRETES (check-in do desafio do dia) ======================= */
+let lembreteIntervalId = null;
+function mostrarNotificacao(titulo,corpo){
+  try{
+    if('serviceWorker' in navigator && navigator.serviceWorker.controller){
+      navigator.serviceWorker.ready.then(reg=>reg.showNotification(titulo,{body:corpo, icon:'./icon-192.png', badge:'./icon-192.png'}));
+    } else if('Notification' in window && Notification.permission==='granted'){
+      new Notification(titulo,{body:corpo, icon:'./icon-192.png'});
+    }
+  }catch(e){ console.warn('notificação falhou',e); }
+}
+async function verificarTarefaPendenteEAvisar(){
+  if(!state.profile) return;
+  if(!('Notification' in window) || Notification.permission!=='granted') return;
+  const hoje = new Date().toISOString().slice(0,10);
+  const { data: chs } = await supabase.from('challenges').select('*').lte('data_inicio',hoje).gte('prazo',hoje);
+  if(!chs || !chs.length) return;
+  const { data: subs } = await supabase.from('submissions').select('challenge_id,etapa,status').eq('user_id',state.profile.id).eq('status','aprovado');
+  let pendente = false;
+  for(const c of chs){
+    const etapas = c.etapas||1;
+    for(let n=1;n<=etapas;n++){
+      const feita = (subs||[]).some(s=>s.challenge_id===c.id && (s.etapa||1)===n);
+      if(!feita){ pendente = true; break; }
+    }
+    if(pendente) break;
+  }
+  if(pendente) mostrarNotificacao('FM Fitness', 'Você ainda não fez o check-in de hoje! Entre no app e cumpra seu desafio. 💪');
+}
+function configurarLembretes(){
+  if(!('Notification' in window) || Notification.permission!=='granted') return;
+  if(lembreteIntervalId) return;
+  setTimeout(verificarTarefaPendenteEAvisar, 4000); // aviso logo após o login, se estiver pendente
+  lembreteIntervalId = setInterval(verificarTarefaPendenteEAvisar, 2*60*60*1000); // a cada 2 horas, enquanto o app estiver aberto
+}
+async function onAtivarLembretes(){
+  if(!('Notification' in window)){ showToast('Seu navegador não suporta notificações.',false); return; }
+  const perm = await Notification.requestPermission();
+  if(perm==='granted'){
+    showToast('Lembretes ativados! Você será avisado a cada 2h se ainda não tiver feito o desafio do dia.');
+    configurarLembretes();
+    render();
+  } else {
+    showToast('Permissão de notificação negada.',false);
+  }
 }
 
 /* ======================= PWA: instalar como app + service worker ======================= */
@@ -1191,6 +1382,7 @@ Object.assign(window, {
   openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso, onAvatarSelecionado, onSalvarPerfil, onAlterarSenha,
   onGerarChave, onCriarDesafio, onSalvarEdicaoDesafio, onExcluirDesafio, onRemoverUsuario,
   onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca, onRedefinirSenha,
+  onChatFotoSelecionada, onEnviarMensagemChat, onExcluirMensagem, onRemoverFotoChat, onAtivarLembretes,
   onInstallClick
 });
 
