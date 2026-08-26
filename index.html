@@ -114,6 +114,10 @@
   .chat-photo{max-width:240px;border-radius:8px;margin-top:6px;display:block;}
   .chat-input-row{display:flex;gap:8px;align-items:flex-end;padding-top:12px;border-top:1px solid var(--line);}
   .chat-input-row textarea{flex:1;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:10px 12px;font-size:14px;resize:none;font-family:inherit;}
+  .chat-text-wrap{position:relative;flex:1;}
+  .mention-box{display:none;flex-direction:column;position:absolute;bottom:100%;left:0;right:0;margin-bottom:6px;background:var(--bg-panel-2);border:1px solid var(--line);border-radius:8px;max-height:180px;overflow-y:auto;z-index:20;box-shadow:0 4px 16px rgba(0,0,0,0.4);}
+  .mention-suggestion{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;color:var(--text);padding:8px 10px;text-align:left;font-size:13px;cursor:pointer;}
+  .mention-suggestion:hover{background:var(--bg-panel);}
   .chat-attach-preview{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:6px 10px;background:var(--bg-panel-2);border:1px solid var(--line);border-radius:8px;font-size:12px;color:var(--text-dim);}
   .chat-attach-preview img{width:36px;height:36px;object-fit:cover;border-radius:6px;}
   .chat-del{background:none;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;margin-top:4px;padding:0;}
@@ -891,8 +895,10 @@ function tabChat(){
     <div class="chat-input-row">
       <label class="btn btn-ghost btn-small" style="width:auto;cursor:pointer;" title="Tirar foto">📷<input type="file" id="chat-foto-camera" accept="image/*" capture="environment" onchange="onChatFotoSelecionada(event)" style="display:none;" /></label>
       <label class="btn btn-ghost btn-small" style="width:auto;cursor:pointer;" title="Escolher da galeria">🖼️<input type="file" id="chat-foto-galeria" accept="image/*" onchange="onChatFotoSelecionada(event)" style="display:none;" /></label>
-      <button class="btn btn-ghost btn-small" style="width:auto;" title="Marcar alguém" onclick="setState({modal:{type:'mencionar'}})">@</button>
-      <textarea id="chat-texto" rows="1" placeholder="Escreva uma mensagem... use @usuario para marcar alguém" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();onEnviarMensagemChat();}"></textarea>
+      <div class="chat-text-wrap">
+        <div id="chat-mention-box" class="mention-box"></div>
+        <textarea id="chat-texto" rows="1" placeholder="Escreva uma mensagem... digite @ para marcar alguém" oninput="onChatTextoInput(event)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();onEnviarMensagemChat();} else if(event.key==='Escape'){onFecharSugestoesMencao();}"></textarea>
+      </div>
       <button class="btn btn-primary btn-small" onclick="onEnviarMensagemChat()">Enviar</button>
     </div>
   </div>`;
@@ -904,13 +910,41 @@ function destacarMencoes(texto){
     return usernames.has(uname.toLowerCase()) ? `<span style="color:var(--accent);font-weight:600;">@${uname}</span>` : match;
   });
 }
-function onInserirMencao(username){
+function onChatTextoInput(ev){
+  const el = ev.target;
+  const pos = el.selectionStart;
+  const antesCursor = el.value.slice(0,pos);
+  const match = antesCursor.match(/@([a-zA-Z0-9_.]*)$/);
+  const box = document.getElementById('chat-mention-box');
+  if(!box) return;
+  if(match){
+    const termo = match[1].toLowerCase();
+    const sugestoes = cache.users.filter(u=>u.id!==state.profile.id && u.username.toLowerCase().startsWith(termo)).slice(0,6);
+    if(sugestoes.length){
+      box.innerHTML = sugestoes.map(u=>`
+        <button type="button" class="mention-suggestion" onmousedown="event.preventDefault();onSelecionarMencaoInline('${u.username}')">
+          ${avatarHTML(u,'width:22px;height:22px;font-size:10px;')} <span>@${u.username}</span><span style="color:var(--text-dim);">${u.nome}</span>
+        </button>`).join('');
+      box.style.display='flex';
+      return;
+    }
+  }
+  box.style.display='none'; box.innerHTML='';
+}
+function onSelecionarMencaoInline(username){
   const el = document.getElementById('chat-texto');
-  setState({modal:null});
-  requestAnimationFrame(()=>{
-    const campo = document.getElementById('chat-texto');
-    if(campo){ campo.value = (campo.value ? campo.value+' ' : '') + '@'+username+' '; campo.focus(); }
-  });
+  if(!el) return;
+  const pos = el.selectionStart;
+  const antes = el.value.slice(0,pos).replace(/@([a-zA-Z0-9_.]*)$/, '@'+username+' ');
+  const depois = el.value.slice(pos);
+  el.value = antes + depois;
+  el.focus();
+  el.setSelectionRange(antes.length, antes.length);
+  onFecharSugestoesMencao();
+}
+function onFecharSugestoesMencao(){
+  const box = document.getElementById('chat-mention-box');
+  if(box){ box.style.display='none'; box.innerHTML=''; }
 }
 function scrollChatParaFinal(){
   const el = document.getElementById('chat-scroll');
@@ -1082,21 +1116,6 @@ function renderModal(){
       </div>
     </div>`;
   }
-  if(m.type==='mencionar'){
-    const outros = cache.users.filter(u=>u.id!==state.profile.id);
-    return `
-    <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
-      <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
-        <h3>Marcar alguém</h3>
-        <div style="display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto;">
-          ${outros.length? outros.map(u=>`
-            <button class="nav-item" style="background:var(--bg-panel-2);border-radius:8px;" onclick="onInserirMencao('${u.username}')">
-              ${avatarHTML(u,'width:26px;height:26px;font-size:11px;margin-right:8px;')} @${u.username} — ${u.nome}
-            </button>`).join('') : `<div class="empty">Nenhum outro participante ainda.</div>`}
-        </div>
-      </div>
-    </div>`;
-  }
   if(m.type==='instalarIOS'){
     return `
     <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
@@ -1210,14 +1229,20 @@ function adminChaves(){
   <div class="page-title"><h1>Chaves de acesso</h1><button class="btn btn-primary btn-small" onclick="setState({modal:{type:'novaChave'}})">+ Gerar chave</button></div>
   <div class="page-sub">Controle de login: gere chaves com prazo de expiração para novos cadastros.</div>
   <div class="card"><table>
-    <tr><th>Chave</th><th>Tipo</th><th>Expira em</th><th>Status</th><th>Usada por</th></tr>
+    <tr><th>Chave</th><th>Tipo</th><th>Expira em</th><th>Status</th><th>Usada por</th><th></th></tr>
     ${keys.length? keys.map(k=>{
       const expirada = new Date(k.expira_em+'T23:59:59') < new Date();
       const uUsou = adminCache.users.find(u=>u.id===k.usado_por);
       const status = k.usado?`<span class="badge badge-good">Usada</span>`:expirada?`<span class="badge badge-bad">Expirada</span>`:`<span class="badge badge-warn">Ativa</span>`;
-      return `<tr><td class="mono">${k.code}</td><td style="text-transform:capitalize">${k.tipo}</td><td>${fmtDate(k.expira_em)}</td><td>${status}</td><td>${uUsou?'@'+uUsou.username:'—'}</td></tr>`;
-    }).join('') : `<tr><td colspan="5" class="empty">Nenhuma chave gerada ainda.</td></tr>`}
+      return `<tr><td class="mono">${k.code}</td><td style="text-transform:capitalize">${k.tipo}</td><td>${fmtDate(k.expira_em)}</td><td>${status}</td><td>${uUsou?'@'+uUsou.username:'—'}</td><td><button class="btn btn-ghost btn-small" onclick="onExcluirChave('${k.code}')">Excluir</button></td></tr>`;
+    }).join('') : `<tr><td colspan="6" class="empty">Nenhuma chave gerada ainda.</td></tr>`}
   </table></div>`;
+}
+async function onExcluirChave(code){
+  const { error } = await supabase.from('access_keys').delete().eq('code',code);
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
+  showToast('Chave excluída.');
+  loadAdminData();
 }
 async function onGerarChave(){
   const tipo = document.getElementById('k-tipo').value;
@@ -1452,9 +1477,10 @@ boot();
 Object.assign(window, {
   setState, onField, togglePwd, onLoginClick, onCadastroClick, onAdminLoginClick, handleLogout,
   openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso, onAvatarSelecionado, onSalvarPerfil, onAlterarSenha,
-  onGerarChave, onCriarDesafio, onSalvarEdicaoDesafio, onExcluirDesafio, onRemoverUsuario,
+  onGerarChave, onCriarDesafio, onSalvarEdicaoDesafio, onExcluirDesafio, onExcluirChave, onRemoverUsuario,
   onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca, onRedefinirSenha,
-  onChatFotoSelecionada, onEnviarMensagemChat, onExcluirMensagem, onRemoverFotoChat, onAtivarLembretes, onInserirMencao,
+  onChatFotoSelecionada, onEnviarMensagemChat, onExcluirMensagem, onRemoverFotoChat, onAtivarLembretes,
+  onChatTextoInput, onSelecionarMencaoInline, onFecharSugestoesMencao,
   onInstallClick
 });
 
