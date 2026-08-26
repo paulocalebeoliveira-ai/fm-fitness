@@ -461,6 +461,7 @@ function sidebarHTML(active,isAdminPanel){
       ${u&&u.is_admin?`<button class="nav-item" onclick="setState({screen:'admin',adminTab:'chaves',sidebarOpen:false})"><span class="bib">⚑</span>Painel admin</button>`:''}
       <div class="user-chip">${avatarHTML(u)}<div class="who">${u?.nome}<div class="u">@${u?.username}</div></div></div>
       ${state.canInstall?`<button class="nav-item" onclick="onInstallClick()"><span class="bib">📲</span>Instalar app</button>`:''}
+      ${isIOS() && !isStandalone()?`<button class="nav-item" onclick="setState({modal:{type:'instalarIOS'}})"><span class="bib">📲</span>Instalar app</button>`:''}
       <button class="nav-item" onclick="handleLogout()"><span class="bib">×</span>Sair</button>
     </div>
   </div>`;
@@ -861,6 +862,21 @@ function renderModal(){
       </div>
     </div>`;
   }
+  if(m.type==='instalarIOS'){
+    return `
+    <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
+      <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
+        <h3>Instalar no iPhone</h3>
+        <div class="helper" style="margin-bottom:14px;">O iOS não permite instalar automaticamente como no Android — são só 3 toques manuais:</div>
+        <ol style="padding-left:20px;line-height:2;color:var(--text);font-size:14px;">
+          <li>Toque no ícone de <b>Compartilhar</b> (o quadrado com uma seta para cima) na barra do Safari</li>
+          <li>Role para baixo e toque em <b>"Adicionar à Tela de Início"</b></li>
+          <li>Toque em <b>"Adicionar"</b> no canto superior direito</li>
+        </ol>
+        <div class="helper" style="margin-top:10px;">Precisa ser feito pelo Safari (não funciona no Chrome do iPhone).</div>
+      </div>
+    </div>`;
+  }
   if(m.type==='rejeitar'){
     return `
     <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
@@ -890,6 +906,18 @@ function renderModal(){
           </select>
         </div>
         <button class="btn btn-primary" onclick="onRenovarLicenca('${m.data.userId}',document.getElementById('lic-tempo').value)">Confirmar</button>
+      </div>
+    </div>`;
+  }
+  if(m.type==='redefinirSenha'){
+    return `
+    <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
+      <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
+        <h3>Redefinir senha</h3>
+        <div class="helper" style="margin-bottom:14px;">${m.data.nome} · @${m.data.username}</div>
+        <div class="field"><label>Nova senha (mín. 6 caracteres)</label><input id="rs-senha" type="text" placeholder="ex: fmfit2026" /></div>
+        <div class="helper" style="margin-bottom:14px;">Avise o usuário sobre a nova senha por fora do app (WhatsApp, presencial etc). Ele pode trocá-la depois fazendo login normalmente.</div>
+        <button class="btn btn-primary" onclick="onRedefinirSenha('${m.data.username}')">Confirmar redefinição</button>
       </div>
     </div>`;
   }
@@ -1039,6 +1067,7 @@ function adminUsuarios(){
             ? `<button class="btn btn-ghost btn-small" onclick="onReativarUsuario('${u.id}')">Reativar</button>`
             : `<button class="btn btn-ghost btn-small" onclick="onDesativarUsuario('${u.id}')">Desativar</button>`}
           <button class="btn btn-ghost btn-small" onclick="setState({modal:{type:'renovarLicenca',data:{userId:'${u.id}',nome:'${u.nome.replace(/'/g,"\\'")}'}}})">Renovar licença</button>
+          <button class="btn btn-ghost btn-small" onclick="setState({modal:{type:'redefinirSenha',data:{username:'${u.username}',nome:'${u.nome.replace(/'/g,"\\'")}'}}})">Redefinir senha</button>
           <button class="btn btn-ghost btn-small" onclick="onRemoverUsuario('${u.id}')">Remover</button>
         </td></tr>`;
     }).join('') : `<tr><td colspan="8" class="empty">Nenhum usuário cadastrado.</td></tr>`}
@@ -1062,6 +1091,14 @@ async function onRenovarLicenca(userId,dias){
   setState({modal:null});
   showToast('Licença renovada.');
   loadAdminData();
+}
+async function onRedefinirSenha(username){
+  const novaSenha = document.getElementById('rs-senha').value;
+  if(!novaSenha || novaSenha.length<6){ showToast('A senha deve ter ao menos 6 caracteres.',false); return; }
+  const { error } = await supabase.rpc('admin_reset_password',{target_username:username,new_password:novaSenha});
+  if(error){ showToast('Erro: '+error.message,false); return; }
+  setState({modal:null});
+  showToast('Senha redefinida com sucesso.');
 }
 async function onRemoverUsuario(id){
   if(id===state.profile.id){ showToast('Você não pode remover sua própria conta.',false); return; }
@@ -1108,6 +1145,8 @@ async function onConfirmarRejeicao(subId){
 }
 
 /* ======================= PWA: instalar como app + service worker ======================= */
+function isIOS(){ return /iphone|ipad|ipod/i.test(navigator.userAgent); }
+function isStandalone(){ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; }
 let deferredInstallPrompt = null;
 window.addEventListener('beforeinstallprompt', (e)=>{
   e.preventDefault();
@@ -1132,7 +1171,7 @@ Object.assign(window, {
   setState, onField, togglePwd, onLoginClick, onCadastroClick, onAdminLoginClick, handleLogout,
   openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso, onAvatarSelecionado, onSalvarPerfil,
   onGerarChave, onCriarDesafio, onSalvarEdicaoDesafio, onExcluirDesafio, onRemoverUsuario,
-  onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca,
+  onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca, onRedefinirSenha,
   onInstallClick
 });
 
