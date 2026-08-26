@@ -280,6 +280,7 @@ async function boot(){
     if(profile && contaLiberada(profile)){ setState({session,profile,screen:'app',appTab:'dashboard'}); return; }
   configurarLembretes();
   iniciarRealtimeChat();
+  iniciarRealtimeFeed();
   atualizarContadorNaoLidas();
     if(profile && !contaLiberada(profile)){ await supabase.auth.signOut(); setState({screen:'login',authError:mensagemBloqueio(profile)}); return; }
   }
@@ -310,6 +311,7 @@ async function handleLogin(username,senha,lembrar){
   setState({busy:false,session:data.session,profile,screen:'app',appTab:'dashboard'});
   configurarLembretes();
   iniciarRealtimeChat();
+  iniciarRealtimeFeed();
   atualizarContadorNaoLidas();
 }
 
@@ -352,6 +354,7 @@ async function handleCadastro(form){
   setState({busy:false,session:signData.session,profile,screen:'app',appTab:'dashboard'});
   configurarLembretes();
   iniciarRealtimeChat();
+  iniciarRealtimeFeed();
   atualizarContadorNaoLidas();
 }
 
@@ -494,7 +497,7 @@ async function onAdminLoginClick(){
 function sidebarHTML(active,isAdminPanel){
   const u = state.profile;
   const items = isAdminPanel ? [['01','chaves','Chaves de acesso'],['02','desafios','Desafios'],['03','usuarios','Usuários'],['04','submissoes','Evidências']]
-                             : [['01','dashboard','Painel'],['02','desafios','Desafios'],['03','historico','Histórico'],['04','ranking','Ranking'],['05','chat','Chat'],['06','perfil','Perfil']];
+                             : [['01','dashboard','Painel'],['02','desafios','Desafios'],['03','feed','Feed'],['04','historico','Histórico'],['05','ranking','Ranking'],['06','chat','Chat'],['07','perfil','Perfil']];
   const goto = isAdminPanel ? (key)=>`setState({adminTab:'${key}',sidebarOpen:false})` : (key)=>`setState({appTab:'${key}',sidebarOpen:false})`;
   return `
   <div class="mobile-topbar">
@@ -529,15 +532,17 @@ function screenApp(){
   return html;
 }
 
-let cache = {users:[], challenges:[], mySubmissions:[], pesoHistorico:[], chatMessages:[]};
+let cache = {users:[], challenges:[], mySubmissions:[], pesoHistorico:[], chatMessages:[], feedSubmissions:[], feedReactions:{}};
 async function loadAppTab(){
-  if(state.appTab==='dashboard' || state.appTab==='ranking' || state.appTab==='chat'){
+  if(state.appTab==='dashboard' || state.appTab==='ranking' || state.appTab==='chat' || state.appTab==='feed'){
     const { data:users } = await supabase.from('profiles').select('*').order('pontos',{ascending:false});
     cache.users = users||[];
   }
-  if(state.appTab==='dashboard' || state.appTab==='desafios' || state.appTab==='historico'){
+  if(state.appTab==='dashboard' || state.appTab==='desafios' || state.appTab==='historico' || state.appTab==='feed'){
     const { data:chs } = await supabase.from('challenges').select('*').order('prazo',{ascending:true});
     cache.challenges = chs||[];
+  }
+  if(state.appTab==='dashboard' || state.appTab==='desafios' || state.appTab==='historico'){
     const { data:subs } = await supabase.from('submissions').select('*').eq('user_id',state.profile.id);
     cache.mySubmissions = subs||[];
   }
@@ -551,6 +556,12 @@ async function loadAppTab(){
     iniciarRealtimeChat();
     await marcarChatComoLido();
   }
+  if(state.appTab==='feed'){
+    const { data:subs } = await supabase.from('submissions').select('*').order('criado_em',{ascending:false}).limit(100);
+    cache.feedSubmissions = subs||[];
+    await carregarReacoesFeed(cache.feedSubmissions.map(s=>s.id));
+    iniciarRealtimeFeed();
+  }
   rerenderMain();
   if(state.appTab==='chat') scrollChatParaFinal();
 }
@@ -559,6 +570,7 @@ function rerenderMain(){
   if(state.screen==='app'){
     if(state.appTab==='dashboard') el.innerHTML = tabDashboard();
     else if(state.appTab==='desafios') el.innerHTML = tabDesafios();
+    else if(state.appTab==='feed') el.innerHTML = tabFeed();
     else if(state.appTab==='historico') el.innerHTML = tabHistorico();
     else if(state.appTab==='ranking') el.innerHTML = tabRanking();
     else if(state.appTab==='chat') el.innerHTML = tabChat();
@@ -741,6 +753,84 @@ function tabRanking(){
       </div>`;
     }).join('') : `<div class="empty">Ainda não há participantes cadastrados.</div>`}
   </div>`;
+}
+
+/* ---- FEED (evidências de todos, com reações) ---- */
+const EMOJIS_REACAO = ['👍','🔥','💪','🎉','❤️','👏'];
+let realtimeFeedAtivo = false;
+
+function tabFeed(){
+  const chById = Object.fromEntries(cache.challenges.map(c=>[c.id,c]));
+  const userById = Object.fromEntries(cache.users.map(u=>[u.id,u]));
+  const subs = cache.feedSubmissions;
+  return `
+  <div class="page-title"><h1>Feed</h1></div>
+  <div class="page-sub">Evidências de todo mundo, em ordem — reaja com um emoji para incentivar.</div>
+  ${subs.length? subs.map(s=>feedCardHTML(s,chById,userById)).join('') : `<div class="empty">Ainda não há evidências enviadas.</div>`}`;
+}
+function feedCardHTML(s,chById,userById){
+  const c = chById[s.challenge_id];
+  const u = userById[s.user_id];
+  const reacoes = cache.feedReactions[s.id] || [];
+  const contagem = {};
+  const meusEmojis = new Set();
+  reacoes.forEach(r=>{ contagem[r.emoji]=(contagem[r.emoji]||0)+1; if(r.user_id===state.profile.id) meusEmojis.add(r.emoji); });
+  const quando = new Date(s.criado_em||s.data).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  const statusBadge = s.status==='aprovado' ? `<span class="badge badge-good">Concluído ✓</span>` : s.status==='rejeitado' ? `<span class="badge badge-bad">Revogado</span>` : `<span class="badge badge-warn">Pendente</span>`;
+  return `
+  <div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      ${avatarHTML(u,'width:34px;height:34px;font-size:13px;')}
+      <div style="flex:1;">
+        <div style="font-weight:600;font-size:14px;">${u?u.nome:'—'}</div>
+        <div class="helper">${quando} · ${c?c.titulo:'(desafio removido)'}${c&&(c.etapas||1)>1?` (Etapa ${s.etapa||1}/${c.etapas})`:''}</div>
+      </div>
+      ${statusBadge}
+    </div>
+    ${s.foto_url?`<img src="${s.foto_url}" class="photo-thumb" style="max-height:320px;" />`:''}
+    ${s.comentario?`<p style="font-size:14px;margin-top:10px;">${escapeHTML(s.comentario)}</p>`:''}
+    <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;">
+      ${EMOJIS_REACAO.map(e=>`
+        <button class="btn ${meusEmojis.has(e)?'btn-primary':'btn-ghost'} btn-small" style="width:auto;padding:5px 11px;" onclick="onReagirEvidencia('${s.id}','${e}')">${e}${contagem[e]?' '+contagem[e]:''}</button>
+      `).join('')}
+    </div>
+  </div>`;
+}
+async function carregarReacoesFeed(subIds){
+  cache.feedReactions = {};
+  if(!subIds.length) return;
+  const { data } = await supabase.from('submission_reactions').select('*').in('submission_id',subIds);
+  (data||[]).forEach(r=>{
+    if(!cache.feedReactions[r.submission_id]) cache.feedReactions[r.submission_id]=[];
+    cache.feedReactions[r.submission_id].push(r);
+  });
+}
+async function onReagirEvidencia(subId,emoji){
+  const jaTem = (cache.feedReactions[subId]||[]).some(r=>r.user_id===state.profile.id && r.emoji===emoji);
+  if(jaTem){
+    await supabase.from('submission_reactions').delete().eq('submission_id',subId).eq('user_id',state.profile.id).eq('emoji',emoji);
+  } else {
+    const { error } = await supabase.from('submission_reactions').insert({submission_id:subId,user_id:state.profile.id,emoji});
+    if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
+  }
+  await carregarReacoesFeed(cache.feedSubmissions.map(s=>s.id));
+  if(state.appTab==='feed') rerenderMain();
+}
+function iniciarRealtimeFeed(){
+  if(realtimeFeedAtivo) return;
+  realtimeFeedAtivo = true;
+  supabase.channel('feed_realtime')
+    .on('postgres_changes', {event:'INSERT', schema:'public', table:'submissions'}, (payload)=>{
+      if(!cache.feedSubmissions.some(s=>s.id===payload.new.id)){
+        cache.feedSubmissions.unshift(payload.new);
+        if(state.appTab==='feed') rerenderMain();
+      }
+    })
+    .on('postgres_changes', {event:'*', schema:'public', table:'submission_reactions'}, async ()=>{
+      await carregarReacoesFeed(cache.feedSubmissions.map(s=>s.id));
+      if(state.appTab==='feed') rerenderMain();
+    })
+    .subscribe();
 }
 
 /* ---- PERFIL ---- */
@@ -1511,7 +1601,7 @@ Object.assign(window, {
   onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca, onRedefinirSenha,
   onChatFotoSelecionada, onEnviarMensagemChat, onExcluirMensagem, onRemoverFotoChat, onAtivarLembretes,
   onChatTextoInput, onSelecionarMencaoInline, onFecharSugestoesMencao, onAbrirEmojis, onInserirEmoji,
-  onExcluirSubmissao,
+  onExcluirSubmissao, onReagirEvidencia,
   onInstallClick
 });
 
