@@ -881,7 +881,8 @@ function tabChat(){
     <div class="chat-messages" id="chat-scroll">${msgsHTML || '<div class="empty">Nenhuma mensagem ainda. Diga oi! 👋</div>'}</div>
     <div id="chat-preview-area"></div>
     <div class="chat-input-row">
-      <label class="btn btn-ghost btn-small" style="width:auto;cursor:pointer;">📷<input type="file" id="chat-foto" accept="image/*" onchange="onChatFotoSelecionada(event)" style="display:none;" /></label>
+      <label class="btn btn-ghost btn-small" style="width:auto;cursor:pointer;" title="Tirar foto">📷<input type="file" id="chat-foto-camera" accept="image/*" capture="environment" onchange="onChatFotoSelecionada(event)" style="display:none;" /></label>
+      <label class="btn btn-ghost btn-small" style="width:auto;cursor:pointer;" title="Escolher da galeria">🖼️<input type="file" id="chat-foto-galeria" accept="image/*" onchange="onChatFotoSelecionada(event)" style="display:none;" /></label>
       <textarea id="chat-texto" rows="1" placeholder="Escreva uma mensagem..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();onEnviarMensagemChat();}"></textarea>
       <button class="btn btn-primary btn-small" onclick="onEnviarMensagemChat()">Enviar</button>
     </div>
