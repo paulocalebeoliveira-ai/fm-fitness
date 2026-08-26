@@ -739,6 +739,14 @@ function tabPerfil(){
         ${historicoHTML}
       </div>
     </div>
+  </div>
+  <div class="grid grid-2" style="margin-top:18px;">
+    <div class="card">
+      <h3>Alterar senha</h3>
+      <div class="field"><label>Nova senha (mín. 6 caracteres)</label><div class="pwd-wrap"><input id="pf-nova-senha" type="password" autocomplete="new-password" /><button type="button" class="pwd-toggle" onclick="togglePwd('pf-nova-senha',this)">👁</button></div></div>
+      <div class="field"><label>Confirmar nova senha</label><div class="pwd-wrap"><input id="pf-confirma-senha" type="password" autocomplete="new-password" /><button type="button" class="pwd-toggle" onclick="togglePwd('pf-confirma-senha',this)">👁</button></div></div>
+      <button class="btn btn-primary" onclick="onAlterarSenha()">Atualizar senha</button>
+    </div>
   </div>`;
 }
 async function onSalvarPerfil(){
@@ -780,6 +788,17 @@ async function onAtualizarPeso(){
   await refreshProfile();
   await loadAppTab(); // recarrega o histórico de peso exibido
   showToast('Peso atualizado com sucesso.');
+}
+async function onAlterarSenha(){
+  const nova = document.getElementById('pf-nova-senha').value;
+  const confirma = document.getElementById('pf-confirma-senha').value;
+  if(!nova || nova.length<6){ showToast('A senha deve ter ao menos 6 caracteres.',false); return; }
+  if(nova!==confirma){ showToast('As senhas não coincidem.',false); return; }
+  const { error } = await supabase.auth.updateUser({password:nova});
+  if(error){ showToast('Erro: '+error.message,false); return; }
+  document.getElementById('pf-nova-senha').value='';
+  document.getElementById('pf-confirma-senha').value='';
+  showToast('Senha alterada com sucesso.');
 }
 
 /* ======================= MODAL: ENVIO DE EVIDÊNCIA ======================= */
@@ -1169,7 +1188,7 @@ boot();
 /* Expõe ao window apenas as funções chamadas pelos onclick/onchange do HTML */
 Object.assign(window, {
   setState, onField, togglePwd, onLoginClick, onCadastroClick, onAdminLoginClick, handleLogout,
-  openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso, onAvatarSelecionado, onSalvarPerfil,
+  openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso, onAvatarSelecionado, onSalvarPerfil, onAlterarSenha,
   onGerarChave, onCriarDesafio, onSalvarEdicaoDesafio, onExcluirDesafio, onRemoverUsuario,
   onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca, onRedefinirSenha,
   onInstallClick
