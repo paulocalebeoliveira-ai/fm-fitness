@@ -258,14 +258,13 @@ function compressImageToBlob(file,maxW=480,quality=0.55){
 /* ======================= STATE ======================= */
 function novoLoginForm(){ return {username:(HAS_LOCAL_STORAGE && localStorage.getItem('fmfit_last_user'))||'', senha:'', lembrar:true}; }
 function novoCadastroForm(){ return {chave:'',nome:'',username:'',senha:'',idade:'',sexo:'feminino',peso:'',altura:'',lembrar:true}; }
-function novoAdminLoginForm(){ return {username:'',senha:'',lembrar:false}; }
 
 let state = {
-  screen:'boot', // boot | login | cadastro | app | admin-login | admin
+  screen:'boot', // boot | login | cadastro | app | admin
   appTab:'dashboard', adminTab:'chaves',
   session:null, profile:null,
   sidebarOpen:false, canInstall:false, chatNaoLidas:0, feedNaoLidas:0, desafiosPendentes:0, rankingMudou:false,
-  loginForm: novoLoginForm(), cadastroForm: novoCadastroForm(), adminLoginForm: novoAdminLoginForm(),
+  loginForm: novoLoginForm(), cadastroForm: novoCadastroForm(),
   authError:'', busy:false, modal:null, toast:null
 };
 function setState(patch){ state = {...state,...patch}; render(); }
@@ -380,7 +379,7 @@ async function handleCadastro(form){
 async function handleLogout(){
   await supabase.auth.signOut();
   supabase = makeClient(true);
-  setState({session:null,profile:null,screen:'login',authError:'',loginForm:novoLoginForm(),cadastroForm:novoCadastroForm(),adminLoginForm:novoAdminLoginForm()});
+  setState({session:null,profile:null,screen:'login',authError:'',loginForm:novoLoginForm(),cadastroForm:novoCadastroForm()});
 }
 
 async function refreshProfile(){
@@ -397,7 +396,6 @@ function render(){
   else if(state.screen==='login') html = screenLogin();
   else if(state.screen==='cadastro') html = screenCadastro();
   else if(state.screen==='app') html = screenApp();
-  else if(state.screen==='admin-login') html = screenAdminLogin();
   else if(state.screen==='admin') html = screenAdmin();
   if(state.modal) html += renderModal();
   if(state.toast) html += `<div class="toast ${state.toast.ok?'toast-ok':'toast-err'}">${state.toast.msg}</div>`;
@@ -422,7 +420,6 @@ function screenLogin(){
         <button type="submit" class="btn btn-primary" ${state.busy?'disabled':''}>${state.busy?'Entrando…':'Entrar'}</button>
       </form>
       <div class="auth-switch">Ainda não tem conta? <button class="link-btn" onclick="setState({screen:'cadastro',authError:''})">Cadastre-se com sua chave</button></div>
-      <div class="auth-switch"><button class="link-btn" onclick="setState({screen:'admin-login',authError:''})">Painel do administrador →</button></div>
     </div>
   </div>`;
 }
@@ -464,6 +461,7 @@ function screenCadastro(){
         <button type="submit" class="btn btn-primary" ${state.busy?'disabled':''}>${state.busy?'Enviando…':'Criar minha conta'}</button>
       </form>
       <div class="auth-switch">Já tem conta? <button class="link-btn" onclick="setState({screen:'login',authError:''})">Fazer login</button></div>
+      <div class="info-box">Primeiro acesso do grupo? Use a chave mestra <span class="mono">FMADMIN2026</span> para criar a primeira conta de administrador — as demais pessoas usam a chave gerada por ela.</div>
     </div>
   </div>`;
 }
@@ -473,43 +471,6 @@ function onCadastroClick(){
   if(form.senha.length<6){ setState({authError:'A senha deve ter ao menos 6 caracteres (exigência do Supabase).'}); return; }
   if(!/^[a-z0-9._-]+$/.test(form.username.trim().toLowerCase())){ setState({authError:'Usuário deve conter apenas letras, números, ponto, traço ou underline.'}); return; }
   handleCadastro(form);
-}
-
-/* ======================= SCREEN: ADMIN LOGIN ======================= */
-function screenAdminLogin(){
-  const f = state.adminLoginForm;
-  return `
-  <div class="center-screen">
-    <div class="auth-card">
-      <div class="brand"><span class="num">FM</span><span class="name">Painel Admin</span></div>
-      <div class="brand-sub">Acesso restrito · controle de chaves, desafios e usuários</div>
-      ${state.authError?`<div class="error-box">${state.authError}</div>`:''}
-      <form autocomplete="on" onsubmit="event.preventDefault(); onAdminLoginClick(); return false;">
-        <div class="field"><label>Usuário admin</label><input name="username" autocomplete="username" value="${f.username}" oninput="onField('adminLoginForm','username',this.value)" /></div>
-        <div class="field"><label>Senha</label><div class="pwd-wrap"><input id="adminlogin-pass" name="password" type="password" autocomplete="current-password" value="${f.senha}" oninput="onField('adminLoginForm','senha',this.value)" /><button type="button" class="pwd-toggle" onclick="togglePwd('adminlogin-pass',this)">👁</button></div></div>
-        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);margin-bottom:16px;">
-          <input type="checkbox" ${f.lembrar?'checked':''} onchange="onField('adminLoginForm','lembrar',this.checked)" style="width:auto;" /> Manter-me conectado neste navegador
-        </label>
-        <button type="submit" class="btn btn-primary" ${state.busy?'disabled':''}>${state.busy?'Verificando…':'Acessar painel'}</button>
-      </form>
-      <div class="auth-switch"><button class="link-btn" onclick="setState({screen:'login',authError:''})">← Voltar ao app</button></div>
-      <div class="info-box">Primeiro acesso? Cadastre-se na tela de cadastro usando a chave mestra <span class="mono">FMADMIN2026</span> para criar a primeira conta de administrador.</div>
-    </div>
-  </div>`;
-}
-async function onAdminLoginClick(){
-  const f = state.adminLoginForm;
-  const u = f.username.trim().toLowerCase(), p = f.senha;
-  setState({busy:true,authError:''});
-  supabase = makeClient(f.lembrar);
-  const email = u+EMAIL_DOMAIN;
-  const { data, error } = await supabase.auth.signInWithPassword({email,password:p});
-  if(error){ setState({busy:false,authError:'Credenciais inválidas.'}); return; }
-  const { data:profile } = await supabase.from('profiles').select('*').eq('id',data.user.id).single();
-  if(!profile || !profile.is_admin){ setState({busy:false,authError:'Esta conta não tem permissão de administrador.'}); await supabase.auth.signOut(); return; }
-  if(!contaLiberada(profile)){ await supabase.auth.signOut(); setState({busy:false,authError:mensagemBloqueio(profile)}); return; }
-  if(HAS_LOCAL_STORAGE) localStorage.setItem('fmfit_last_user',u);
-  setState({busy:false,session:data.session,profile,screen:'admin',adminTab:'chaves'});
 }
 
 /* ======================= APP SHELL ======================= */
@@ -1750,7 +1711,7 @@ boot();
 
 /* Expõe ao window apenas as funções chamadas pelos onclick/onchange do HTML */
 Object.assign(window, {
-  setState, onField, togglePwd, onLoginClick, onCadastroClick, onAdminLoginClick, handleLogout,
+  setState, onField, togglePwd, onLoginClick, onCadastroClick, handleLogout,
   openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso, onAvatarSelecionado, onSalvarPerfil, onAlterarSenha,
   onGerarChave, onCriarDesafio, onSalvarEdicaoDesafio, onExcluirDesafio, onExcluirChave, onRemoverUsuario,
   onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca, onRedefinirSenha,
