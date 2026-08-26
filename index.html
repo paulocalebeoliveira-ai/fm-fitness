@@ -86,6 +86,7 @@
   .challenge p{margin:0;color:var(--text-dim);font-size:13px;line-height:1.5;}
   .points-pill{font-family:'IBM Plex Mono';background:var(--bg);border:1px solid var(--line);padding:4px 10px;border-radius:20px;font-size:12px;color:var(--accent);white-space:nowrap;}
   .challenge-foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12px;color:var(--text-dim);flex-wrap:wrap;gap:8px;}
+  .challenge-foot.admin-foot{justify-content:flex-start;gap:20px;}
   .rank-row{display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:8px;margin-bottom:8px;border:1px solid var(--line);background:var(--bg-panel-2);}
   .rank-row.me{border-color:var(--accent);}
   .bib-num{font-family:'IBM Plex Mono';font-size:15px;width:34px;color:var(--text-dim);}
@@ -256,7 +257,13 @@ function compressImageToBlob(file,maxW=480,quality=0.55){
 }
 
 /* ======================= STATE ======================= */
-function novoLoginForm(){ return {username:(HAS_LOCAL_STORAGE && localStorage.getItem('fmfit_last_user'))||'', senha:'', lembrar:true}; }
+function novoLoginForm(){
+  return {
+    username:(HAS_LOCAL_STORAGE && localStorage.getItem('fmfit_last_user'))||'',
+    senha:(HAS_LOCAL_STORAGE && localStorage.getItem('fmfit_last_pass'))||'',
+    lembrar:true
+  };
+}
 function novoCadastroForm(){ return {chave:'',nome:'',username:'',senha:'',idade:'',sexo:'feminino',peso:'',altura:'',lembrar:true}; }
 
 let state = {
@@ -317,7 +324,15 @@ async function handleLogin(username,senha,lembrar){
   const { data:profile } = await supabase.from('profiles').select('*').eq('id',data.user.id).single();
   if(!profile){ setState({busy:false,authError:'Conta sem perfil associado. Contate o administrador.'}); return; }
   if(!contaLiberada(profile)){ await supabase.auth.signOut(); setState({busy:false,authError:mensagemBloqueio(profile)}); return; }
-  if(HAS_LOCAL_STORAGE) localStorage.setItem('fmfit_last_user',username.trim().toLowerCase());
+  if(HAS_LOCAL_STORAGE){
+    if(lembrar){
+      localStorage.setItem('fmfit_last_user',username.trim().toLowerCase());
+      localStorage.setItem('fmfit_last_pass',senha);
+    } else {
+      localStorage.removeItem('fmfit_last_user');
+      localStorage.removeItem('fmfit_last_pass');
+    }
+  }
   setState({busy:false,session:data.session,profile,screen:'app',appTab:'dashboard'});
   configurarLembretes();
   iniciarRealtimeChat();
@@ -363,7 +378,15 @@ async function handleCadastro(form){
   const { error: profErr } = await supabase.from('profiles').insert(profile);
   if(profErr){ setState({busy:false,authError:'Erro ao criar perfil: '+traduzirErro(profErr.message)}); return; }
   await supabase.from('weight_history').insert({user_id:signData.user.id,peso});
-  if(HAS_LOCAL_STORAGE) localStorage.setItem('fmfit_last_user',username);
+  if(HAS_LOCAL_STORAGE){
+    if(form.lembrar){
+      localStorage.setItem('fmfit_last_user',username);
+      localStorage.setItem('fmfit_last_pass',form.senha);
+    } else {
+      localStorage.removeItem('fmfit_last_user');
+      localStorage.removeItem('fmfit_last_pass');
+    }
+  }
 
   setState({busy:false,session:signData.session,profile,screen:'app',appTab:'dashboard'});
   configurarLembretes();
@@ -1450,7 +1473,7 @@ function adminDesafios(){
     return `
     <div class="challenge"><div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">${pontosInfo}</span></div>
       <p>${c.descricao||''}</p>
-      <div class="challenge-foot"><span>Aparece: ${periodo}${etapas>1?` · ${etapas} etapas`:''}</span>
+      <div class="challenge-foot admin-foot"><span>Aparece: ${periodo}${etapas>1?` · ${etapas} etapas`:''}</span>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-ghost btn-small" onclick='setState({modal:{type:"editarDesafio",data:${JSON.stringify(c).replace(/'/g,"&#39;")}}})'>Editar</button>
           <button class="btn btn-ghost btn-small" onclick="onExcluirDesafio('${c.id}')">Excluir</button>
