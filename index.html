@@ -250,7 +250,7 @@ let state = {
   screen:'boot', // boot | login | cadastro | app | admin-login | admin
   appTab:'dashboard', adminTab:'chaves',
   session:null, profile:null,
-  sidebarOpen:false, canInstall:false,
+  sidebarOpen:false, canInstall:false, chatNaoLidas:0,
   loginForm: novoLoginForm(), cadastroForm: novoCadastroForm(), adminLoginForm: novoAdminLoginForm(),
   authError:'', busy:false, modal:null, toast:null
 };
@@ -272,6 +272,8 @@ async function boot(){
     const { data:profile } = await supabase.from('profiles').select('*').eq('id',session.user.id).single();
     if(profile && contaLiberada(profile)){ setState({session,profile,screen:'app',appTab:'dashboard'}); return; }
   configurarLembretes();
+  iniciarRealtimeChat();
+  atualizarContadorNaoLidas();
     if(profile && !contaLiberada(profile)){ await supabase.auth.signOut(); setState({screen:'login',authError:mensagemBloqueio(profile)}); return; }
   }
   setState({screen:'login'});
@@ -300,6 +302,8 @@ async function handleLogin(username,senha,lembrar){
   if(HAS_LOCAL_STORAGE) localStorage.setItem('fmfit_last_user',username.trim().toLowerCase());
   setState({busy:false,session:data.session,profile,screen:'app',appTab:'dashboard'});
   configurarLembretes();
+  iniciarRealtimeChat();
+  atualizarContadorNaoLidas();
 }
 
 async function handleCadastro(form){
@@ -340,6 +344,8 @@ async function handleCadastro(form){
 
   setState({busy:false,session:signData.session,profile,screen:'app',appTab:'dashboard'});
   configurarLembretes();
+  iniciarRealtimeChat();
+  atualizarContadorNaoLidas();
 }
 
 async function handleLogout(){
@@ -493,8 +499,9 @@ function sidebarHTML(active,isAdminPanel){
     <button class="sidebar-close-mobile" onclick="setState({sidebarOpen:false})">✕</button>
     <div class="side-brand"><span class="num">FM</span><span class="name">Fitness${isAdminPanel?' · ADM':''}</span></div>
     ${items.map(([n,key,label])=>`
-      <button class="nav-item ${active===key?'active':''}" onclick="${goto(key)}">
+      <button class="nav-item ${active===key?'active':''}" onclick="${goto(key)}" style="position:relative;">
         <span class="bib">${n}</span>${label}
+        ${key==='chat' && state.chatNaoLidas>0 ? `<span style="margin-left:auto;background:var(--accent);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 7px;">${state.chatNaoLidas>9?'9+':state.chatNaoLidas}</span>` : ''}
       </button>`).join('')}
     <div class="side-foot">
       ${isAdminPanel?`<button class="nav-item" onclick="setState({screen:'app',appTab:'dashboard',sidebarOpen:false})"><span class="bib">←</span>Ver como usuário</button>`:''}
@@ -535,6 +542,7 @@ async function loadAppTab(){
     const { data:msgs } = await supabase.from('chat_messages').select('*').order('criado_em',{ascending:true}).limit(200);
     cache.chatMessages = msgs||[];
     iniciarRealtimeChat();
+    await marcarChatComoLido();
   }
   rerenderMain();
   if(state.appTab==='chat') scrollChatParaFinal();
@@ -868,7 +876,7 @@ function tabChat(){
         <div class="chat-meta"><b>${isMe?'Você':nome}</b><span>${hora}</span></div>
         <div class="chat-bubble">
           ${m.foto_url?`<img src="${m.foto_url}" class="chat-photo" />`:''}
-          ${m.texto?`<div class="chat-text">${escapeHTML(m.texto)}</div>`:''}
+          ${m.texto?`<div class="chat-text">${destacarMencoes(m.texto)}</div>`:''}
         </div>
         ${(isMe||state.profile.is_admin)?`<button class="chat-del" onclick="onExcluirMensagem('${m.id}')">Excluir</button>`:''}
       </div>
@@ -883,12 +891,27 @@ function tabChat(){
     <div class="chat-input-row">
       <label class="btn btn-ghost btn-small" style="width:auto;cursor:pointer;" title="Tirar foto">📷<input type="file" id="chat-foto-camera" accept="image/*" capture="environment" onchange="onChatFotoSelecionada(event)" style="display:none;" /></label>
       <label class="btn btn-ghost btn-small" style="width:auto;cursor:pointer;" title="Escolher da galeria">🖼️<input type="file" id="chat-foto-galeria" accept="image/*" onchange="onChatFotoSelecionada(event)" style="display:none;" /></label>
-      <textarea id="chat-texto" rows="1" placeholder="Escreva uma mensagem..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();onEnviarMensagemChat();}"></textarea>
+      <button class="btn btn-ghost btn-small" style="width:auto;" title="Marcar alguém" onclick="setState({modal:{type:'mencionar'}})">@</button>
+      <textarea id="chat-texto" rows="1" placeholder="Escreva uma mensagem... use @usuario para marcar alguém" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();onEnviarMensagemChat();}"></textarea>
       <button class="btn btn-primary btn-small" onclick="onEnviarMensagemChat()">Enviar</button>
     </div>
   </div>`;
 }
 function escapeHTML(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function destacarMencoes(texto){
+  const usernames = new Set(cache.users.map(u=>u.username.toLowerCase()));
+  return escapeHTML(texto).replace(/@([a-zA-Z0-9_.]+)/g, (match,uname)=>{
+    return usernames.has(uname.toLowerCase()) ? `<span style="color:var(--accent);font-weight:600;">@${uname}</span>` : match;
+  });
+}
+function onInserirMencao(username){
+  const el = document.getElementById('chat-texto');
+  setState({modal:null});
+  requestAnimationFrame(()=>{
+    const campo = document.getElementById('chat-texto');
+    if(campo){ campo.value = (campo.value ? campo.value+' ' : '') + '@'+username+' '; campo.focus(); }
+  });
+}
 function scrollChatParaFinal(){
   const el = document.getElementById('chat-scroll');
   if(el) el.scrollTop = el.scrollHeight;
@@ -932,18 +955,51 @@ async function onExcluirMensagem(id){
   cache.chatMessages = cache.chatMessages.filter(m=>m.id!==id);
   if(state.appTab==='chat') rerenderMain();
 }
+function mencionaUsuario(texto,username){
+  if(!texto||!username) return false;
+  const escapado = username.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  return new RegExp('@'+escapado+'\\b','i').test(texto);
+}
 function iniciarRealtimeChat(){
   if(realtimeChatAtivo) return;
   realtimeChatAtivo = true;
   supabase.channel('chat_messages_realtime')
     .on('postgres_changes', {event:'INSERT', schema:'public', table:'chat_messages'}, (payload)=>{
-      if(!cache.chatMessages.some(m=>m.id===payload.new.id)){
-        cache.chatMessages.push(payload.new);
-        if(state.appTab==='chat'){ rerenderMain(); scrollChatParaFinal(); }
-        else if(payload.new.user_id!==state.profile.id){ showToast('Nova mensagem no chat 💬'); }
+      if(cache.chatMessages.some(m=>m.id===payload.new.id)) return;
+      cache.chatMessages.push(payload.new);
+      const souEu = payload.new.user_id===state.profile.id;
+      const emChat = state.screen==='app' && state.appTab==='chat';
+      const meMencionou = !souEu && mencionaUsuario(payload.new.texto, state.profile.username);
+
+      if(emChat){
+        rerenderMain(); scrollChatParaFinal();
+        if(!souEu) marcarChatComoLido();
+      } else if(!souEu){
+        state.chatNaoLidas = (state.chatNaoLidas||0)+1;
+        render();
+      }
+      if(meMencionou){
+        showToast('📣 Você foi mencionado no chat!');
+        mostrarNotificacao('FM Fitness — você foi mencionado', payload.new.texto || 'Veja a mensagem no chat.');
+      } else if(!souEu && !emChat){
+        showToast('Nova mensagem no chat 💬');
       }
     })
     .subscribe();
+}
+async function marcarChatComoLido(){
+  const agora = new Date().toISOString();
+  state.chatNaoLidas = 0;
+  if(state.profile) state.profile.chat_ultima_leitura = agora;
+  await supabase.from('profiles').update({chat_ultima_leitura:agora}).eq('id',state.profile.id);
+}
+async function atualizarContadorNaoLidas(){
+  if(!state.profile) return;
+  const { count } = await supabase.from('chat_messages').select('id',{count:'exact',head:true})
+    .gt('criado_em', state.profile.chat_ultima_leitura || '1970-01-01')
+    .neq('user_id', state.profile.id);
+  state.chatNaoLidas = count||0;
+  render();
 }
 
 /* ======================= MODAL: ENVIO DE EVIDÊNCIA ======================= */
@@ -1023,6 +1079,21 @@ function renderModal(){
         </div>
         <div class="helper" style="margin-bottom:14px;">Para um desafio de um dia só, use a mesma data nos dois campos.</div>
         <button class="btn btn-primary" onclick="onSalvarEdicaoDesafio('${c.id}')">Salvar alterações</button>
+      </div>
+    </div>`;
+  }
+  if(m.type==='mencionar'){
+    const outros = cache.users.filter(u=>u.id!==state.profile.id);
+    return `
+    <div class="modal-bg" onclick="if(event.target===this) setState({modal:null})">
+      <div class="modal"><button class="close-x" onclick="setState({modal:null})">✕</button>
+        <h3>Marcar alguém</h3>
+        <div style="display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto;">
+          ${outros.length? outros.map(u=>`
+            <button class="nav-item" style="background:var(--bg-panel-2);border-radius:8px;" onclick="onInserirMencao('${u.username}')">
+              ${avatarHTML(u,'width:26px;height:26px;font-size:11px;margin-right:8px;')} @${u.username} — ${u.nome}
+            </button>`).join('') : `<div class="empty">Nenhum outro participante ainda.</div>`}
+        </div>
       </div>
     </div>`;
   }
@@ -1383,7 +1454,7 @@ Object.assign(window, {
   openEnvioModal, onFotoSelecionada, onEnviarEvidencia, onAtualizarPeso, onAvatarSelecionado, onSalvarPerfil, onAlterarSenha,
   onGerarChave, onCriarDesafio, onSalvarEdicaoDesafio, onExcluirDesafio, onRemoverUsuario,
   onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca, onRedefinirSenha,
-  onChatFotoSelecionada, onEnviarMensagemChat, onExcluirMensagem, onRemoverFotoChat, onAtivarLembretes,
+  onChatFotoSelecionada, onEnviarMensagemChat, onExcluirMensagem, onRemoverFotoChat, onAtivarLembretes, onInserirMencao,
   onInstallClick
 });
 
