@@ -881,22 +881,21 @@ function iniciarRealtimeFeed(){
   realtimeFeedAtivo = true;
   function estouNoFeed(){ return state.screen==='app' && state.appTab==='feed'; }
   supabase.channel('feed_realtime')
-    .on('postgres_changes', {event:'INSERT', schema:'public', table:'submissions'}, (payload)=>{
+    .on('postgres_changes', {event:'*', schema:'public', table:'submissions'}, (payload)=>{
+      if(payload.eventType!=='INSERT') return;
       if(cache.feedSubmissions.some(s=>s.id===payload.new.id)) return;
       cache.feedSubmissions.unshift(payload.new);
       const souEu = payload.new.user_id===state.profile.id;
       if(estouNoFeed()){ rerenderMain(); }
       else if(!souEu){ state.feedNaoLidas = (state.feedNaoLidas||0)+1; render(); }
     })
-    .on('postgres_changes', {event:'INSERT', schema:'public', table:'submission_reactions'}, async (payload)=>{
+    .on('postgres_changes', {event:'*', schema:'public', table:'submission_reactions'}, async (payload)=>{
       await carregarReacoesFeed(cache.feedSubmissions.map(s=>s.id));
-      const souEu = payload.new.user_id===state.profile.id;
-      if(estouNoFeed()){ rerenderMain(); }
-      else if(!souEu){ state.feedNaoLidas = (state.feedNaoLidas||0)+1; render(); }
-    })
-    .on('postgres_changes', {event:'DELETE', schema:'public', table:'submission_reactions'}, async ()=>{
-      await carregarReacoesFeed(cache.feedSubmissions.map(s=>s.id));
-      if(estouNoFeed()) rerenderMain();
+      if(estouNoFeed()){ rerenderMain(); return; }
+      if(payload.eventType==='INSERT'){
+        const souEu = payload.new.user_id===state.profile.id;
+        if(!souEu){ state.feedNaoLidas = (state.feedNaoLidas||0)+1; render(); }
+      }
     })
     .on('postgres_changes', {event:'*', schema:'public', table:'submission_comments'}, async (payload)=>{
       await carregarComentariosFeed(cache.feedSubmissions.map(s=>s.id));
