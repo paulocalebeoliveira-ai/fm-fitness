@@ -264,7 +264,7 @@ let state = {
   screen:'boot', // boot | login | cadastro | app | admin-login | admin
   appTab:'dashboard', adminTab:'chaves',
   session:null, profile:null,
-  sidebarOpen:false, canInstall:false, chatNaoLidas:0,
+  sidebarOpen:false, canInstall:false, chatNaoLidas:0, feedNaoLidas:0,
   loginForm: novoLoginForm(), cadastroForm: novoCadastroForm(), adminLoginForm: novoAdminLoginForm(),
   authError:'', busy:false, modal:null, toast:null
 };
@@ -289,6 +289,7 @@ async function boot(){
   iniciarRealtimeChat();
   iniciarRealtimeFeed();
   atualizarContadorNaoLidas();
+  atualizarContadorFeedNaoLidas();
     if(profile && !contaLiberada(profile)){ await supabase.auth.signOut(); setState({screen:'login',authError:mensagemBloqueio(profile)}); return; }
   }
   setState({screen:'login'});
@@ -320,6 +321,7 @@ async function handleLogin(username,senha,lembrar){
   iniciarRealtimeChat();
   iniciarRealtimeFeed();
   atualizarContadorNaoLidas();
+  atualizarContadorFeedNaoLidas();
 }
 
 async function handleCadastro(form){
@@ -363,6 +365,7 @@ async function handleCadastro(form){
   iniciarRealtimeChat();
   iniciarRealtimeFeed();
   atualizarContadorNaoLidas();
+  atualizarContadorFeedNaoLidas();
 }
 
 async function handleLogout(){
@@ -519,6 +522,7 @@ function sidebarHTML(active,isAdminPanel){
       <button class="nav-item ${active===key?'active':''}" onclick="${goto(key)}" style="position:relative;">
         <span class="bib">${n}</span>${label}
         ${key==='chat' && state.chatNaoLidas>0 ? `<span style="margin-left:auto;background:var(--accent);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 7px;">${state.chatNaoLidas>9?'9+':state.chatNaoLidas}</span>` : ''}
+        ${key==='feed' && state.feedNaoLidas>0 ? `<span style="margin-left:auto;background:var(--accent);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 7px;">${state.feedNaoLidas>9?'9+':state.feedNaoLidas}</span>` : ''}
       </button>`).join('')}
     <div class="side-foot">
       ${isAdminPanel?`<button class="nav-item" onclick="setState({screen:'app',appTab:'dashboard',sidebarOpen:false})"><span class="bib">←</span>Ver como usuário</button>`:''}
@@ -569,6 +573,7 @@ async function loadAppTab(){
     await carregarReacoesFeed(cache.feedSubmissions.map(s=>s.id));
     await carregarComentariosFeed(cache.feedSubmissions.map(s=>s.id));
     iniciarRealtimeFeed();
+    await marcarFeedComoLido();
   }
   rerenderMain();
   if(state.appTab==='chat') scrollChatParaFinal();
@@ -873,22 +878,32 @@ async function onReagirEvidencia(subId,emoji){
 function iniciarRealtimeFeed(){
   if(realtimeFeedAtivo) return;
   realtimeFeedAtivo = true;
+  function estouNoFeed(){ return state.screen==='app' && state.appTab==='feed'; }
   supabase.channel('feed_realtime')
     .on('postgres_changes', {event:'INSERT', schema:'public', table:'submissions'}, (payload)=>{
-      if(!cache.feedSubmissions.some(s=>s.id===payload.new.id)){
-        cache.feedSubmissions.unshift(payload.new);
-        if(state.appTab==='feed') rerenderMain();
-      }
+      if(cache.feedSubmissions.some(s=>s.id===payload.new.id)) return;
+      cache.feedSubmissions.unshift(payload.new);
+      const souEu = payload.new.user_id===state.profile.id;
+      if(estouNoFeed()){ rerenderMain(); }
+      else if(!souEu){ state.feedNaoLidas = (state.feedNaoLidas||0)+1; render(); }
     })
-    .on('postgres_changes', {event:'*', schema:'public', table:'submission_reactions'}, async ()=>{
+    .on('postgres_changes', {event:'INSERT', schema:'public', table:'submission_reactions'}, async (payload)=>{
       await carregarReacoesFeed(cache.feedSubmissions.map(s=>s.id));
-      if(state.appTab==='feed') rerenderMain();
+      const souEu = payload.new.user_id===state.profile.id;
+      if(estouNoFeed()){ rerenderMain(); }
+      else if(!souEu){ state.feedNaoLidas = (state.feedNaoLidas||0)+1; render(); }
+    })
+    .on('postgres_changes', {event:'DELETE', schema:'public', table:'submission_reactions'}, async ()=>{
+      await carregarReacoesFeed(cache.feedSubmissions.map(s=>s.id));
+      if(estouNoFeed()) rerenderMain();
     })
     .on('postgres_changes', {event:'*', schema:'public', table:'submission_comments'}, async (payload)=>{
       await carregarComentariosFeed(cache.feedSubmissions.map(s=>s.id));
-      if(state.appTab==='feed') rerenderMain();
+      if(estouNoFeed()) rerenderMain();
       const novoComentario = payload.eventType==='INSERT' ? payload.new : null;
-      if(novoComentario && novoComentario.user_id!==state.profile.id && state.appTab!=='feed'){
+      const souEu = novoComentario && novoComentario.user_id===state.profile.id;
+      if(novoComentario && !souEu && !estouNoFeed()){
+        state.feedNaoLidas = (state.feedNaoLidas||0)+1; render();
         showToast('💬 Novo comentário em uma evidência do feed');
       }
     })
@@ -1207,6 +1222,25 @@ async function atualizarContadorNaoLidas(){
     .gt('criado_em', state.profile.chat_ultima_leitura || '1970-01-01')
     .neq('user_id', state.profile.id);
   state.chatNaoLidas = count||0;
+  render();
+}
+
+async function marcarFeedComoLido(){
+  if(!state.profile) return;
+  const agora = new Date().toISOString();
+  state.feedNaoLidas = 0;
+  state.profile.feed_ultima_leitura = agora;
+  await supabase.from('profiles').update({feed_ultima_leitura:agora}).eq('id',state.profile.id);
+}
+async function atualizarContadorFeedNaoLidas(){
+  if(!state.profile) return;
+  const desde = state.profile.feed_ultima_leitura || '1970-01-01';
+  const [subsRes, reacoesRes, comentariosRes] = await Promise.all([
+    supabase.from('submissions').select('id',{count:'exact',head:true}).gt('criado_em',desde).neq('user_id',state.profile.id),
+    supabase.from('submission_reactions').select('id',{count:'exact',head:true}).gt('criado_em',desde).neq('user_id',state.profile.id),
+    supabase.from('submission_comments').select('id',{count:'exact',head:true}).gt('criado_em',desde).neq('user_id',state.profile.id),
+  ]);
+  state.feedNaoLidas = (subsRes.count||0)+(reacoesRes.count||0)+(comentariosRes.count||0);
   render();
 }
 
