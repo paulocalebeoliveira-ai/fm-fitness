@@ -264,7 +264,7 @@ let state = {
   screen:'boot', // boot | login | cadastro | app | admin-login | admin
   appTab:'dashboard', adminTab:'chaves',
   session:null, profile:null,
-  sidebarOpen:false, canInstall:false, chatNaoLidas:0, feedNaoLidas:0,
+  sidebarOpen:false, canInstall:false, chatNaoLidas:0, feedNaoLidas:0, desafiosPendentes:0, rankingMudou:false,
   loginForm: novoLoginForm(), cadastroForm: novoCadastroForm(), adminLoginForm: novoAdminLoginForm(),
   authError:'', busy:false, modal:null, toast:null
 };
@@ -290,6 +290,9 @@ async function boot(){
   iniciarRealtimeFeed();
   atualizarContadorNaoLidas();
   atualizarContadorFeedNaoLidas();
+  atualizarContadorDesafios();
+  atualizarStatusRanking();
+  iniciarRealtimeRanking();
     if(profile && !contaLiberada(profile)){ await supabase.auth.signOut(); setState({screen:'login',authError:mensagemBloqueio(profile)}); return; }
   }
   setState({screen:'login'});
@@ -322,6 +325,9 @@ async function handleLogin(username,senha,lembrar){
   iniciarRealtimeFeed();
   atualizarContadorNaoLidas();
   atualizarContadorFeedNaoLidas();
+  atualizarContadorDesafios();
+  atualizarStatusRanking();
+  iniciarRealtimeRanking();
 }
 
 async function handleCadastro(form){
@@ -366,6 +372,9 @@ async function handleCadastro(form){
   iniciarRealtimeFeed();
   atualizarContadorNaoLidas();
   atualizarContadorFeedNaoLidas();
+  atualizarContadorDesafios();
+  atualizarStatusRanking();
+  iniciarRealtimeRanking();
 }
 
 async function handleLogout(){
@@ -523,6 +532,8 @@ function sidebarHTML(active,isAdminPanel){
         <span class="bib">${n}</span>${label}
         ${key==='chat' && state.chatNaoLidas>0 ? `<span style="margin-left:auto;background:var(--accent);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 7px;">${state.chatNaoLidas>9?'9+':state.chatNaoLidas}</span>` : ''}
         ${key==='feed' && state.feedNaoLidas>0 ? `<span style="margin-left:auto;background:var(--accent);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 7px;">${state.feedNaoLidas>9?'9+':state.feedNaoLidas}</span>` : ''}
+        ${key==='desafios' && !isAdminPanel && state.desafiosPendentes>0 ? `<span style="margin-left:auto;background:var(--accent);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 7px;">${state.desafiosPendentes>9?'9+':state.desafiosPendentes}</span>` : ''}
+        ${key==='ranking' && state.rankingMudou ? `<span style="margin-left:auto;width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block;" title="Sua posição mudou"></span>` : ''}
       </button>`).join('')}
     <div class="side-foot">
       ${isAdminPanel?`<button class="nav-item" onclick="setState({screen:'app',appTab:'dashboard',sidebarOpen:false})"><span class="bib">←</span>Ver como usuário</button>`:''}
@@ -548,6 +559,9 @@ async function loadAppTab(){
   if(state.appTab==='dashboard' || state.appTab==='ranking' || state.appTab==='chat' || state.appTab==='feed'){
     const { data:users } = await supabase.from('profiles').select('*').order('pontos',{ascending:false});
     cache.users = users||[];
+  }
+  if(state.appTab==='ranking'){
+    await marcarRankingComoVisto();
   }
   if(state.appTab==='dashboard' || state.appTab==='desafios' || state.appTab==='historico' || state.appTab==='feed'){
     const { data:chs } = await supabase.from('challenges').select('*').order('prazo',{ascending:true});
@@ -1410,6 +1424,7 @@ async function onEnviarEvidencia(challengeId,etapa){
   setState({modal:null});
   showToast('Evidência registrada e pontos creditados! ✓');
   loadAppTab();
+  atualizarContadorDesafios();
 }
 
 /* ======================= ADMIN SCREENS ======================= */
@@ -1635,23 +1650,63 @@ function mostrarNotificacao(titulo,corpo){
     }
   }catch(e){ console.warn('notificação falhou',e); }
 }
-async function verificarTarefaPendenteEAvisar(){
+/* ======================= RANKING: aviso de mudança de posição ======================= */
+let realtimeRankingAtivo = false;
+async function calcularMinhaPosicao(){
+  const { data } = await supabase.from('profiles').select('id,pontos').order('pontos',{ascending:false});
+  if(!data) return null;
+  const idx = data.findIndex(u=>u.id===state.profile.id);
+  return idx>=0 ? idx+1 : null;
+}
+async function atualizarStatusRanking(){
   if(!state.profile) return;
-  if(!('Notification' in window) || Notification.permission!=='granted') return;
+  const posicaoAtual = await calcularMinhaPosicao();
+  if(posicaoAtual==null) return;
+  const vista = state.profile.ranking_posicao_vista;
+  state.rankingMudou = (vista!=null && vista!==posicaoAtual);
+  render();
+}
+async function marcarRankingComoVisto(){
+  if(!state.profile) return;
+  const posicaoAtual = await calcularMinhaPosicao();
+  if(posicaoAtual==null) return;
+  state.rankingMudou = false;
+  state.profile.ranking_posicao_vista = posicaoAtual;
+  await supabase.from('profiles').update({ranking_posicao_vista:posicaoAtual}).eq('id',state.profile.id);
+}
+function iniciarRealtimeRanking(){
+  if(realtimeRankingAtivo) return;
+  realtimeRankingAtivo = true;
+  supabase.channel('ranking_realtime')
+    .on('postgres_changes', {event:'UPDATE', schema:'public', table:'profiles'}, ()=>{
+      atualizarStatusRanking();
+    })
+    .subscribe();
+}
+
+async function atualizarContadorDesafios(){
+  if(!state.profile) return 0;
   const hoje = new Date().toISOString().slice(0,10);
   const { data: chs } = await supabase.from('challenges').select('*').lte('data_inicio',hoje).gte('prazo',hoje);
-  if(!chs || !chs.length) return;
+  if(!chs || !chs.length){ state.desafiosPendentes = 0; render(); return 0; }
   const { data: subs } = await supabase.from('submissions').select('challenge_id,etapa,status').eq('user_id',state.profile.id).eq('status','aprovado');
-  let pendente = false;
+  let pendentes = 0;
   for(const c of chs){
     const etapas = c.etapas||1;
     for(let n=1;n<=etapas;n++){
       const feita = (subs||[]).some(s=>s.challenge_id===c.id && (s.etapa||1)===n);
-      if(!feita){ pendente = true; break; }
+      if(!feita) pendentes++;
     }
-    if(pendente) break;
   }
-  if(pendente) mostrarNotificacao('FM Fitness', 'Você ainda não fez o check-in de hoje! Entre no app e cumpra seu desafio. 💪');
+  state.desafiosPendentes = pendentes;
+  render();
+  return pendentes;
+}
+async function verificarTarefaPendenteEAvisar(){
+  if(!state.profile) return;
+  const pendentes = await atualizarContadorDesafios();
+  if(!('Notification' in window) || Notification.permission!=='granted') return;
+  if(pendentes>0) mostrarNotificacao('FM Fitness', 'Você ainda não fez o check-in de hoje! Entre no app e cumpra seu desafio. 💪');
 }
 function configurarLembretes(){
   if(!('Notification' in window) || Notification.permission!=='granted') return;
