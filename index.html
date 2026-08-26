@@ -118,6 +118,9 @@
   .mention-box{display:none;flex-direction:column;position:absolute;bottom:100%;left:0;right:0;margin-bottom:6px;background:var(--bg-panel-2);border:1px solid var(--line);border-radius:8px;max-height:180px;overflow-y:auto;z-index:20;box-shadow:0 4px 16px rgba(0,0,0,0.4);}
   .mention-suggestion{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;color:var(--text);padding:8px 10px;text-align:left;font-size:13px;cursor:pointer;}
   .mention-suggestion:hover{background:var(--bg-panel);}
+  .emoji-box{display:none;position:absolute;bottom:100%;right:0;margin-bottom:6px;background:var(--bg-panel-2);border:1px solid var(--line);border-radius:8px;padding:8px;z-index:20;box-shadow:0 4px 16px rgba(0,0,0,0.4);grid-template-columns:repeat(7,1fr);gap:2px;width:250px;}
+  .emoji-box button{background:none;border:none;font-size:20px;padding:5px;border-radius:6px;cursor:pointer;}
+  .emoji-box button:hover{background:var(--bg-panel);}
   .chat-attach-preview{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:6px 10px;background:var(--bg-panel-2);border:1px solid var(--line);border-radius:8px;font-size:12px;color:var(--text-dim);}
   .chat-attach-preview img{width:36px;height:36px;object-fit:cover;border-radius:6px;}
   .chat-del{background:none;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;margin-top:4px;padding:0;}
@@ -897,8 +900,10 @@ function tabChat(){
       <label class="btn btn-ghost btn-small" style="width:auto;cursor:pointer;" title="Escolher da galeria">🖼️<input type="file" id="chat-foto-galeria" accept="image/*" onchange="onChatFotoSelecionada(event)" style="display:none;" /></label>
       <div class="chat-text-wrap">
         <div id="chat-mention-box" class="mention-box"></div>
+        <div id="chat-emoji-box" class="emoji-box"></div>
         <textarea id="chat-texto" rows="1" placeholder="Escreva uma mensagem... digite @ para marcar alguém" oninput="onChatTextoInput(event)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();onEnviarMensagemChat();} else if(event.key==='Escape'){onFecharSugestoesMencao();}"></textarea>
       </div>
+      <button class="btn btn-ghost btn-small" style="width:auto;" title="Emojis" onclick="onAbrirEmojis()">😊</button>
       <button class="btn btn-primary btn-small" onclick="onEnviarMensagemChat()">Enviar</button>
     </div>
   </div>`;
@@ -945,6 +950,23 @@ function onSelecionarMencaoInline(username){
 function onFecharSugestoesMencao(){
   const box = document.getElementById('chat-mention-box');
   if(box){ box.style.display='none'; box.innerHTML=''; }
+}
+const EMOJIS_CHAT = ['💪','🔥','🏆','🥇','🎉','👏','😀','😅','😂','😢','😴','🥵','💧','🥗','🍎','🏃','🚶','🧘','⏱️','✅','❌','👍','👎','❤️','🙌','💯','🤝','😎','🤩','😭','🤔','🫡'];
+function onAbrirEmojis(){
+  const box = document.getElementById('chat-emoji-box');
+  if(!box) return;
+  if(box.style.display==='grid'){ box.style.display='none'; box.innerHTML=''; return; }
+  box.innerHTML = EMOJIS_CHAT.map(e=>`<button type="button" onmousedown="event.preventDefault();onInserirEmoji('${e}')">${e}</button>`).join('');
+  box.style.display='grid';
+}
+function onInserirEmoji(emoji){
+  const el = document.getElementById('chat-texto');
+  if(!el) return;
+  const pos = el.selectionStart;
+  el.value = el.value.slice(0,pos) + emoji + el.value.slice(pos);
+  const novaPos = pos + emoji.length;
+  el.focus();
+  el.setSelectionRange(novaPos,novaPos);
 }
 function scrollChatParaFinal(){
   const el = document.getElementById('chat-scroll');
@@ -1384,13 +1406,21 @@ function adminSubmissoes(){
       <div class="helper">${fmtDate(s.data)}${c?` · vale ${c.pontos} pts`:''}</div>
       ${s.comentario?`<p style="font-size:13px;color:var(--text-dim);margin-top:8px;">"${s.comentario}"</p>`:''}
       ${s.foto_url ? `<img src="${s.foto_url}" class="photo-thumb" />` : `<div class="helper" style="margin-top:8px;">Sem foto anexada.</div>`}
-      <div style="display:flex;gap:10px;margin-top:12px;">
+      <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
         ${s.status==='aprovado'?`<button class="btn btn-ghost btn-small" onclick="setState({modal:{type:'rejeitar',data:{subId:'${s.id}'}}})">Revogar (desconta pontos)</button>`:''}
         ${s.status==='rejeitado'?`<button class="btn btn-primary btn-small" onclick="onAprovarSubmissao('${s.id}')">Aprovar novamente</button>`:''}
         ${s.status==='pendente'?`<button class="btn btn-primary btn-small" onclick="onAprovarSubmissao('${s.id}')">Aprovar</button><button class="btn btn-ghost btn-small" onclick="setState({modal:{type:'rejeitar',data:{subId:'${s.id}'}}})">Rejeitar</button>`:''}
+        <button class="btn btn-ghost btn-small" onclick="onExcluirSubmissao('${s.id}')">Excluir</button>
       </div>
     </div>`;
   }).join('') : `<div class="empty">Nenhuma evidência enviada ainda.</div>`}`;
+}
+async function onExcluirSubmissao(subId){
+  if(!window.confirm('Excluir esta evidência permanentemente? Se ela já estava aprovada, os pontos serão descontados.')) return;
+  const { error } = await supabase.rpc('admin_delete_submission',{sub_id:subId});
+  if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
+  showToast('Evidência excluída.');
+  loadAdminData();
 }
 async function onAprovarSubmissao(subId){
   const { error } = await supabase.rpc('approve_submission',{sub_id:subId});
@@ -1480,7 +1510,8 @@ Object.assign(window, {
   onGerarChave, onCriarDesafio, onSalvarEdicaoDesafio, onExcluirDesafio, onExcluirChave, onRemoverUsuario,
   onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca, onRedefinirSenha,
   onChatFotoSelecionada, onEnviarMensagemChat, onExcluirMensagem, onRemoverFotoChat, onAtivarLembretes,
-  onChatTextoInput, onSelecionarMencaoInline, onFecharSugestoesMencao,
+  onChatTextoInput, onSelecionarMencaoInline, onFecharSugestoesMencao, onAbrirEmojis, onInserirEmoji,
+  onExcluirSubmissao,
   onInstallClick
 });
 
