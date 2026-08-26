@@ -800,6 +800,7 @@ function feedCardHTML(s,chById,userById){
         <div class="helper">${quando} · ${c?c.titulo:'(desafio removido)'}${c&&(c.etapas||1)>1?` (Etapa ${s.etapa||1}/${c.etapas})`:''}</div>
       </div>
       ${statusBadge}
+      ${state.profile.is_admin?`<button class="btn btn-ghost btn-small" style="width:auto;" title="Excluir esta evidência do feed" onclick="onExcluirSubmissao('${s.id}')">🗑️</button>`:''}
     </div>
     ${s.foto_url?`<img src="${s.foto_url}" class="photo-thumb" style="max-height:320px;" />`:''}
     ${s.comentario?`<p style="font-size:14px;margin-top:10px;">${escapeHTML(s.comentario)}</p>`:''}
@@ -1606,7 +1607,11 @@ async function onExcluirSubmissao(subId){
   const { error } = await supabase.rpc('admin_delete_submission',{sub_id:subId});
   if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   showToast('Evidência excluída.');
-  loadAdminData();
+  cache.feedSubmissions = cache.feedSubmissions.filter(s=>s.id!==subId);
+  delete cache.feedReactions[subId];
+  delete cache.feedComments[subId];
+  if(state.screen==='admin') loadAdminData();
+  else if(state.screen==='app' && state.appTab==='feed') rerenderMain();
 }
 async function onAprovarSubmissao(subId){
   const { error } = await supabase.rpc('approve_submission',{sub_id:subId});
