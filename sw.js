@@ -22,3 +22,31 @@ self.addEventListener('fetch', (event) => {
       .catch(() => caches.match(event.request))
   );
 });
+
+// Recebe notificações push mesmo com o app fechado (enviadas pela Edge Function do Supabase).
+self.addEventListener('push', (event) => {
+  let data = { title: 'FM Fitness', body: 'Você tem uma novidade no app.' };
+  try { if (event.data) data = event.data.json(); } catch (e) {
+    if (event.data) data.body = event.data.text();
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'FM Fitness', {
+      body: data.body || '',
+      icon: './icon-192.png',
+      badge: './icon-192.png',
+    })
+  );
+});
+
+// Ao tocar na notificação, abre o app (ou foca a aba já aberta).
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window' }).then((windowClients) => {
+      for (const client of windowClients) {
+        if ('focus' in client) return client.focus();
+      }
+      if (clients.openWindow) return clients.openWindow('./');
+    })
+  );
+});
