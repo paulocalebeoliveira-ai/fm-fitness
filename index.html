@@ -1705,6 +1705,7 @@ async function verificarTarefaPendenteEAvisar(){
 }
 function configurarLembretes(){
   if(!('Notification' in window) || Notification.permission!=='granted') return;
+  inscreverPush(); // garante a inscrição push real mesmo se a permissão já tinha sido concedida antes
   if(lembreteIntervalId) return;
   setTimeout(verificarTarefaPendenteEAvisar, 4000); // aviso logo após o login, se estiver pendente
   lembreteIntervalId = setInterval(verificarTarefaPendenteEAvisar, 2*60*60*1000); // a cada 2 horas, enquanto o app estiver aberto
