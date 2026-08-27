@@ -538,7 +538,7 @@ function screenApp(){
   return html;
 }
 
-let cache = {users:[], challenges:[], mySubmissions:[], pesoHistorico:[], chatMessages:[], feedSubmissions:[], feedReactions:{}, feedComments:{}};
+let cache = {users:[], challenges:[], mySubmissions:[], pesoHistorico:[], chatMessages:[], feedSubmissions:[], feedReactions:{}, feedComments:{}, feedTemMais:false};
 async function loadAppTab(){
   if(state.appTab==='dashboard' || state.appTab==='ranking' || state.appTab==='chat' || state.appTab==='feed'){
     const { data:users } = await supabase.from('profiles').select('*').order('pontos',{ascending:false});
@@ -566,8 +566,10 @@ async function loadAppTab(){
     await marcarChatComoLido();
   }
   if(state.appTab==='feed'){
-    const { data:subs } = await supabase.from('submissions').select('*').order('criado_em',{ascending:false}).limit(100);
+    const PAGINA = 30;
+    const { data:subs } = await supabase.from('submissions').select('*').order('criado_em',{ascending:false}).limit(PAGINA);
     cache.feedSubmissions = subs||[];
+    cache.feedTemMais = (subs||[]).length===PAGINA;
     await carregarReacoesFeed(cache.feedSubmissions.map(s=>s.id));
     await carregarComentariosFeed(cache.feedSubmissions.map(s=>s.id));
     iniciarRealtimeFeed();
@@ -792,7 +794,25 @@ function tabFeed(){
   return `
   <div class="page-title"><h1>Feed</h1></div>
   <div class="page-sub">Evidências de todo mundo, em ordem — reaja com um emoji para incentivar.</div>
-  ${subs.length? subs.map(s=>feedCardHTML(s,chById,userById)).join('') : `<div class="empty">Ainda não há evidências enviadas.</div>`}`;
+  ${subs.length? subs.map(s=>feedCardHTML(s,chById,userById)).join('') : `<div class="empty">Ainda não há evidências enviadas.</div>`}
+  ${cache.feedTemMais ? `<div style="text-align:center;margin:16px 0;"><button class="btn btn-ghost" id="feed-carregar-mais-btn" onclick="onCarregarMaisFeed()">Carregar evidências mais antigas</button></div>` : (subs.length? `<div class="empty">Início do feed — não há evidências mais antigas.</div>` : '')}`;
+}
+async function onCarregarMaisFeed(){
+  const btn = document.getElementById('feed-carregar-mais-btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Carregando…'; }
+  const PAGINA = 30;
+  const ultima = cache.feedSubmissions[cache.feedSubmissions.length-1];
+  if(!ultima){ if(btn){btn.disabled=false;btn.textContent='Carregar evidências mais antigas';} return; }
+  const { data: subs } = await supabase.from('submissions').select('*')
+    .lt('criado_em', ultima.criado_em)
+    .order('criado_em',{ascending:false})
+    .limit(PAGINA);
+  const novas = subs||[];
+  cache.feedSubmissions = cache.feedSubmissions.concat(novas);
+  cache.feedTemMais = novas.length===PAGINA;
+  await carregarReacoesFeed(cache.feedSubmissions.map(s=>s.id));
+  await carregarComentariosFeed(cache.feedSubmissions.map(s=>s.id));
+  if(state.appTab==='feed') rerenderMain();
 }
 function feedCardHTML(s,chById,userById){
   const c = chById[s.challenge_id];
@@ -1721,10 +1741,7 @@ function urlBase64ToUint8Array(base64String){
   return outputArray;
 }
 async function inscreverPush(){
-  if(!('serviceWorker' in navigator) || !('PushManager' in window)){
-    showToast('Este navegador não suporta push (falta serviceWorker/PushManager).',false);
-    return;
-  }
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   if(!state.profile) return;
   try{
     const reg = await navigator.serviceWorker.ready;
@@ -1736,18 +1753,13 @@ async function inscreverPush(){
       });
     }
     const json = sub.toJSON();
-    const { error } = await supabase.from('push_subscriptions').upsert({
+    await supabase.from('push_subscriptions').upsert({
       user_id: state.profile.id,
       endpoint: json.endpoint,
       p256dh: json.keys.p256dh,
       auth: json.keys.auth
     }, { onConflict: 'user_id,endpoint' });
-    if(error){ showToast('Erro ao salvar inscrição push: '+traduzirErro(error.message),false); return; }
-    showToast('Inscrição push confirmada ✓');
-  }catch(e){
-    showToast('Falha ao inscrever no push: '+(e && e.message ? e.message : e),false);
-    console.warn('push subscribe falhou', e);
-  }
+  }catch(e){ console.warn('push subscribe falhou', e); }
 }
 
 async function onAtivarLembretes(){
@@ -1793,7 +1805,7 @@ Object.assign(window, {
   onAprovarSubmissao, onConfirmarRejeicao, onDesativarUsuario, onReativarUsuario, onRenovarLicenca, onRedefinirSenha,
   onChatFotoSelecionada, onEnviarMensagemChat, onExcluirMensagem, onRemoverFotoChat, onAtivarLembretes,
   onChatTextoInput, onSelecionarMencaoInline, onFecharSugestoesMencao, onAbrirEmojis, onInserirEmoji,
-  onExcluirSubmissao, onReagirEvidencia, onEnviarComentarioFeed, onExcluirComentarioFeed,
+  onExcluirSubmissao, onReagirEvidencia, onEnviarComentarioFeed, onExcluirComentarioFeed, onCarregarMaisFeed,
   onInstallClick
 });
 
