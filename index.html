@@ -643,12 +643,27 @@ function tabDashboard(){
 /* ---- DESAFIOS (somente o(s) desafio(s) de hoje) ---- */
 function tabDesafios(){
   const hoje = new Date().toISOString().slice(0,10);
+  const amanha = new Date(Date.now()+86400000).toISOString().slice(0,10);
   const chs = cache.challenges.filter(c=>c.data_inicio<=hoje && c.prazo>=hoje);
+  const idsHoje = new Set(chs.map(c=>c.id));
+  const chsAmanha = cache.challenges.filter(c=>c.data_inicio<=amanha && c.prazo>=amanha && !idsHoje.has(c.id));
   const minhas = cache.mySubmissions;
   return `
   <div class="page-title"><h1>Desafio de hoje</h1></div>
   <div class="page-sub">${fmtDate(hoje)} · cumpra o objetivo e envie a evidência para pontuar. Perdeu algum dia? Confira em "Histórico".</div>
-  ${chs.length? chs.map(c=>challengeCardHTML(c,minhas)).join('') : `<div class="empty">Nenhum desafio programado para hoje. Volte amanhã ou confira o Histórico.</div>`}`;
+  ${chs.length? chs.map(c=>challengeCardHTML(c,minhas)).join('') : `<div class="empty">Nenhum desafio programado para hoje. Volte amanhã ou confira o Histórico.</div>`}
+  ${chsAmanha.length? `
+  <div style="margin-top:28px;margin-bottom:12px;font-weight:600;color:var(--text);font-size:15px;">🔜 Prepare-se para amanhã (${fmtDate(amanha)})</div>
+  ${chsAmanha.map(c=>{
+    const etapas = c.etapas||1;
+    const pontosInfo = etapas>1 ? `+${c.pontos} pts × ${etapas} etapas` : `+${c.pontos} pts`;
+    return `
+    <div class="challenge" style="opacity:0.7;">
+      <div class="challenge-top"><h4>${c.titulo}</h4><span class="points-pill">${pontosInfo}</span></div>
+      <p>${c.descricao||''}</p>
+      <div class="challenge-foot"><span>🔒 Disponível a partir de amanhã</span></div>
+    </div>`;
+  }).join('')}` : ''}`;
 }
 
 // Monta o card de um desafio, lidando com desafios de etapa única e de múltiplas etapas.
