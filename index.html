@@ -860,14 +860,12 @@ async function onEnviarComentarioFeed(subId){
   const { error } = await supabase.from('submission_comments').insert({submission_id:subId,user_id:state.profile.id,texto});
   if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   if(el) el.value='';
-  await carregarComentariosFeed(cache.feedSubmissions.map(s=>s.id));
-  if(state.appTab==='feed') rerenderMain();
+  // Não recarrega manualmente aqui: o realtime já traz o comentário novo (evita duplicar por um instante).
 }
 async function onExcluirComentarioFeed(commentId,subId){
   const { error } = await supabase.from('submission_comments').delete().eq('id',commentId);
   if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
-  await carregarComentariosFeed(cache.feedSubmissions.map(s=>s.id));
-  if(state.appTab==='feed') rerenderMain();
+  // Não recarrega manualmente aqui: o realtime já remove o comentário da tela.
 }
 async function carregarReacoesFeed(subIds){
   cache.feedReactions = {};
@@ -886,8 +884,7 @@ async function onReagirEvidencia(subId,emoji){
     const { error } = await supabase.from('submission_reactions').insert({submission_id:subId,user_id:state.profile.id,emoji});
     if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   }
-  await carregarReacoesFeed(cache.feedSubmissions.map(s=>s.id));
-  if(state.appTab==='feed') rerenderMain();
+  // Não recarrega manualmente aqui: o realtime já atualiza a reação (evita duplicar por um instante).
 }
 function iniciarRealtimeFeed(){
   if(realtimeFeedAtivo) return;
@@ -1182,8 +1179,7 @@ async function onEnviarMensagemChat(){
   chatFotoPendente = null;
   if(textoEl) textoEl.value='';
   const area = document.getElementById('chat-preview-area'); if(area) area.innerHTML='';
-  // a mensagem própria também chega pelo realtime; recarrega para garantir consistência
-  await loadAppTab();
+  // Não recarrega manualmente aqui: a mensagem já chega pelo realtime (evita duplicar por um instante).
 }
 async function onExcluirMensagem(id){
   const { error } = await supabase.from('chat_messages').delete().eq('id',id);
