@@ -211,6 +211,19 @@ function daysLeft(dateStr){ const d=new Date(dateStr+'T23:59:59'); return Math.c
 function fmtDate(dateStr){ if(!dateStr) return '—'; return new Date(dateStr+'T12:00:00').toLocaleDateString('pt-BR'); }
 function fmtDateTime(ts){ if(!ts) return '—'; return new Date(ts).toLocaleDateString('pt-BR'); }
 
+// IMPORTANTE: usa o horário LOCAL do dispositivo (não UTC) para calcular "hoje".
+// new Date().toISOString() sempre retorna UTC, o que faria o app "virar o dia"
+// horas antes do horário real no Brasil (UTC-3). Use sempre esta função para
+// qualquer cálculo de "que dia é hoje" no app.
+function dataLocalISO(offsetDias){
+  const d = new Date();
+  if(offsetDias) d.setDate(d.getDate()+offsetDias);
+  const ano = d.getFullYear();
+  const mes = String(d.getMonth()+1).padStart(2,'0');
+  const dia = String(d.getDate()).padStart(2,'0');
+  return `${ano}-${mes}-${dia}`;
+}
+
 // Traduz mensagens de erro comuns do Supabase/Postgres para português.
 function traduzirErro(msg){
   if(!msg) return 'Ocorreu um erro inesperado. Tente novamente.';
@@ -306,7 +319,7 @@ async function boot(){
 
 function contaLiberada(profile){
   if(profile.ativo === false) return false;
-  if(profile.licenca_expira_em && profile.licenca_expira_em < new Date().toISOString().slice(0,10)) return false;
+  if(profile.licenca_expira_em && profile.licenca_expira_em < dataLocalISO()) return false;
   return true;
 }
 function mensagemBloqueio(profile){
@@ -370,7 +383,7 @@ async function handleCadastro(form){
   const imc = calcIMC(peso,altura);
   const isAdmin = tipo==='admin';
   // Licença padrão de 30 dias para novos usuários (admins não expiram). O admin pode renovar depois na aba Usuários.
-  const licencaExpiraEm = isAdmin ? null : new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+  const licencaExpiraEm = isAdmin ? null : dataLocalISO(30);
   const profile = {
     id: signData.user.id, username, nome: form.nome, idade: parseInt(form.idade,10), sexo: form.sexo,
     peso, peso_inicial: peso, altura, imc, pontos:0, is_admin: isAdmin, licenca_expira_em: licencaExpiraEm
@@ -601,7 +614,7 @@ function tabDashboard(){
   const u = state.profile, imcInfo = classIMC(u.imc);
   const rankPos = cache.users.findIndex(x=>x.id===u.id)+1;
   const totalUsers = cache.users.length||1;
-  const hoje = new Date().toISOString().slice(0,10);
+  const hoje = dataLocalISO();
   const hojeDesafios = cache.challenges.filter(c=>c.data_inicio<=hoje && c.prazo>=hoje);
   const totalPossivel = cache.challenges.reduce((s,c)=>s+c.pontos,0)||100;
   const pctDial = Math.min(100,Math.round((u.pontos/totalPossivel)*100));
@@ -644,8 +657,8 @@ function tabDashboard(){
 
 /* ---- DESAFIOS (somente o(s) desafio(s) de hoje) ---- */
 function tabDesafios(){
-  const hoje = new Date().toISOString().slice(0,10);
-  const amanha = new Date(Date.now()+86400000).toISOString().slice(0,10);
+  const hoje = dataLocalISO();
+  const amanha = dataLocalISO(1);
   const chs = cache.challenges.filter(c=>c.data_inicio<=hoje && c.prazo>=hoje);
   const idsHoje = new Set(chs.map(c=>c.id));
   const chsAmanha = cache.challenges.filter(c=>c.data_inicio<=amanha && c.prazo>=amanha && !idsHoje.has(c.id));
@@ -728,7 +741,7 @@ function openEnvioModal(challengeId,etapa){ setState({modal:{type:'envio',data:{
 
 /* ---- HISTÓRICO (desafios de dias passados: concluído ou perdido) ---- */
 function tabHistorico(){
-  const hoje = new Date().toISOString().slice(0,10);
+  const hoje = dataLocalISO();
   const passados = cache.challenges.filter(c=>c.prazo<hoje).sort((a,b)=>b.prazo.localeCompare(a.prazo));
   const minhas = cache.mySubmissions;
   function etapasAprovadas(c){
@@ -1543,7 +1556,7 @@ async function onExcluirDesafio(id){
 
 function adminUsuarios(){
   const users = adminCache.users;
-  const hoje = new Date().toISOString().slice(0,10);
+  const hoje = dataLocalISO();
   return `
   <div class="page-title"><h1>Usuários</h1></div>
   <div class="page-sub">Administração de contas, pontuação, permissões e licença de acesso.</div>
@@ -1583,7 +1596,7 @@ async function onReativarUsuario(userId){
   showToast('Usuário reativado.'); loadAdminData();
 }
 async function onRenovarLicenca(userId,dias){
-  const licencaExpiraEm = dias==='ilimitada' ? null : new Date(Date.now()+parseInt(dias,10)*86400000).toISOString().slice(0,10);
+  const licencaExpiraEm = dias==='ilimitada' ? null : dataLocalISO(parseInt(dias,10));
   const { error } = await supabase.from('profiles').update({licenca_expira_em:licencaExpiraEm,ativo:true}).eq('id',userId);
   if(error){ showToast('Erro: '+traduzirErro(error.message),false); return; }
   setState({modal:null});
@@ -1701,7 +1714,7 @@ function iniciarRealtimeRanking(){
 
 async function atualizarContadorDesafios(){
   if(!state.profile) return 0;
-  const hoje = new Date().toISOString().slice(0,10);
+  const hoje = dataLocalISO();
   const { data: chs } = await supabase.from('challenges').select('*').lte('data_inicio',hoje).gte('prazo',hoje);
   if(!chs || !chs.length){ state.desafiosPendentes = 0; render(); return 0; }
   const { data: subs } = await supabase.from('submissions').select('challenge_id,etapa,status').eq('user_id',state.profile.id).eq('status','aprovado');
